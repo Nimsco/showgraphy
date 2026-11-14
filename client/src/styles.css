@@ -591,6 +591,11 @@ kbd { display: inline-grid; min-width: 20px; height: 20px; place-items: center; 
 .review-card header { display: flex; justify-content: space-between; gap: 12px; color: var(--ink-2); font-size: 12px; }
 .review-card time { color: var(--ink-3); }
 .review-card p { margin: 12px 0 0; color: var(--ink); font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.review-actions { display: flex; gap: 14px; margin-top: 12px; }
+.review-actions .text-button { display: inline-flex; align-items: center; gap: 5px; }
+.review-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.review-edit textarea { flex: 1 0 100%; min-height: 100px; padding: 10px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); resize: vertical; }
+.review-edit span { flex: 1; color: var(--ink-3); font-size: 11px; text-align: right; }
 .review-empty { color: var(--ink-2); font-size: 13px; }
 .rating-panels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .rating-panel { min-height: 147px; padding: 20px 21px; border-right: 1px solid var(--line); }

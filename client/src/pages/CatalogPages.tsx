@@ -2,11 +2,12 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, Film, Heart, MessageSquareText, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Film, Heart, MessageSquareText, Pencil, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Button, EmptyState, FieldError, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
 import { apiRequest } from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
 import type { LibraryEntry, MediaTitle, UserList, WatchStatus } from '../types';
 
 type Page<T> = { items: T[]; total: number; page: number; limit: number };
@@ -188,10 +189,11 @@ export function LibraryPage() {
 }
 
 type DetailResult = { item: MediaTitle; myCommunityRating: number | null; libraryEntry: Omit<LibraryEntry, '_id' | 'titleId' | 'userId' | 'createdAt' | 'updatedAt'> & { _id?: string } | null };
-type TitleReview = { _id: string; body: string; createdAt: string; userId: { _id: string; username: string; avatar: string } };
+type TitleReview = { _id: string; body: string; createdAt: string; updatedAt: string; userId: { _id: string; username: string; avatar: string } };
 
 export function TitlePage() {
   const { id = '' } = useParams();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ['title', id], queryFn: () => apiRequest<DetailResult>(`/catalog/${id}`) });
   const reviews = useQuery({ queryKey: ['title-reviews', id], queryFn: () => apiRequest<{ items: TitleReview[] }>(`/titles/${id}/reviews`) });
@@ -199,6 +201,9 @@ export function TitlePage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [reviewBody, setReviewBody] = useState('');
+  const [editingReviewId, setEditingReviewId] = useState<string | null>(null);
+  const [editingReviewBody, setEditingReviewBody] = useState('');
+  const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
   const [collectionPicker, setCollectionPicker] = useState(false);
   const collections = useQuery({ queryKey: ['lists'], queryFn: () => apiRequest<{ items: UserList[] }>('/lists'), enabled: collectionPicker });
   useEffect(() => { if (detail.data?.myCommunityRating) setRating(String(detail.data.myCommunityRating)); }, [detail.data?.myCommunityRating]);
@@ -247,6 +252,28 @@ export function TitlePage() {
       setNotice('Your review was published.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your review could not be published.'); }
   }
+  async function saveReviewEdit(reviewId: string) {
+    try {
+      setError('');
+      await apiRequest(`/titles/${item._id}/reviews/${reviewId}`, { method: 'PUT', body: JSON.stringify({ body: editingReviewBody }) });
+      setEditingReviewId(null);
+      await queryClient.invalidateQueries({ queryKey: ['title-reviews', id] });
+      setNotice('Your review was updated.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your review could not be updated.'); }
+  }
+  function deleteReview(reviewId: string) {
+    setDeletingReviewId(reviewId);
+  }
+  async function confirmDeleteReview() {
+    if (!deletingReviewId) return;
+    try {
+      setError('');
+      await apiRequest(`/titles/${item._id}/reviews/${deletingReviewId}`, { method: 'DELETE' });
+      setDeletingReviewId(null);
+      await queryClient.invalidateQueries({ queryKey: ['title-reviews', id] });
+      setNotice('Your review was deleted.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your review could not be deleted.'); }
+  }
   async function addToCollection(listId: string) {
     try {
       await apiRequest(`/lists/${listId}/items`, { method: 'POST', body: JSON.stringify({ titleId: item._id }) });
@@ -283,9 +310,10 @@ export function TitlePage() {
       </section>
       <section className="title-reviews" aria-labelledby="reviews-heading">
         <div className="section-topline"><div><p className="eyebrow">Notes from the community</p><h2 id="reviews-heading"><MessageSquareText size={22} /> Reviews</h2><p>Rate this title once. Write as many separate reviews as you like.</p></div></div>
-        <form className="review-form" onSubmit={submitReview}><label htmlFor="title-review">Write a review</label><textarea id="title-review" value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} minLength={10} maxLength={3000} rows={5} placeholder="What stayed with you?" required /><span>{reviewBody.length}/3000</span><Button type="submit" disabled={reviewBody.trim().length < 10}>Publish review</Button></form>
-        <div className="review-list">{reviews.isLoading ? <LoadingLine label="Loading reviews" /> : reviews.data?.items.length ? reviews.data.items.map((review) => <article className="review-card" key={review._id}><header><strong>@{review.userId.username}</strong><time dateTime={review.createdAt}>{new Date(review.createdAt).toLocaleDateString()}</time></header><p>{review.body}</p></article>) : <p className="review-empty">No reviews yet. Start the conversation.</p>}</div>
+        <form className="review-form" onSubmit={submitReview}><label htmlFor="title-review">Write a review</label><textarea id="title-review" value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} minLength={1} maxLength={3000} rows={5} placeholder="What stayed with you?" required /><span>{reviewBody.length}/3000</span><Button type="submit" disabled={!reviewBody.trim()}>Publish review</Button></form>
+        <div className="review-list">{reviews.isLoading ? <LoadingLine label="Loading reviews" /> : reviews.data?.items.length ? reviews.data.items.map((review) => <article className="review-card" key={review._id}><header><strong>@{review.userId.username}</strong><time dateTime={review.createdAt}>{new Date(review.createdAt).toLocaleDateString()}</time></header>{editingReviewId === review._id ? <div className="review-edit"><textarea aria-label="Edit review" value={editingReviewBody} onChange={(event) => setEditingReviewBody(event.target.value)} maxLength={3000} rows={4} /><span>{editingReviewBody.length}/3000</span><Button disabled={!editingReviewBody.trim()} onClick={() => void saveReviewEdit(review._id)}>Save changes</Button><Button variant="outline" onClick={() => setEditingReviewId(null)}>Cancel</Button></div> : <><p>{review.body}</p>{user?.id === review.userId._id && <div className="review-actions"><button className="text-button" onClick={() => { setEditingReviewId(review._id); setEditingReviewBody(review.body); }}><Pencil size={14} /> Edit</button><button className="text-button" onClick={() => void deleteReview(review._id)}><Trash2 size={14} /> Delete</button></div>}</>}</article>) : <p className="review-empty">No reviews yet. Start the conversation.</p>}</div>
       </section>
+      {deletingReviewId && <div className="dialog-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeletingReviewId(null); }}><section className="dialog-panel confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-review-title"><div className="dialog-header"><div><p className="eyebrow">Remove your review</p><h2 id="delete-review-title">Delete this review?</h2></div><button className="icon-button" aria-label="Close confirmation" onClick={() => setDeletingReviewId(null)}><X size={18} /></button></div><p>This review will be permanently deleted.</p><div className="dialog-actions"><Button variant="outline" onClick={() => setDeletingReviewId(null)}>Cancel</Button><Button variant="danger" onClick={() => void confirmDeleteReview()}>Delete review</Button></div></section></div>}
     </div>
   </div>;
 }

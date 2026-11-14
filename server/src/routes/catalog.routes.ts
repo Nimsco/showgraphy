@@ -63,10 +63,22 @@ ratingRouter.get('/:titleId/reviews', route(async (request, response) => {
 ratingRouter.post('/:titleId/reviews', authenticate, route(async (request, response) => {
   const titleId = String(request.params.titleId);
   if (!mongoose.isValidObjectId(titleId) || !(await MediaTitle.exists({ _id: titleId }))) throw new HttpError(404, 'Title not found.');
-  const { body } = z.object({ body: z.string().trim().min(10).max(3000) }).parse(request.body);
+  const { body } = z.object({ body: z.string().trim().min(1).max(3000) }).parse(request.body);
   const item = await TitleReview.create({ userId: request.auth!.userId, titleId, body });
   const populated = await item.populate('userId', 'username avatar');
   response.status(201).json({ item: populated });
+}));
+ratingRouter.put('/:titleId/reviews/:reviewId', authenticate, route(async (request, response) => {
+  const { titleId, reviewId } = request.params;
+  if (!mongoose.isValidObjectId(titleId) || !mongoose.isValidObjectId(reviewId)) throw new HttpError(404, 'Review not found.');
+  const { body } = z.object({ body: z.string().trim().min(1).max(3000) }).parse(request.body);
+  const item = await TitleReview.findOneAndUpdate(
+    { _id: reviewId, titleId, userId: request.auth!.userId },
+    { $set: { body } },
+    { new: true, runValidators: true },
+  ).populate('userId', 'username avatar');
+  if (!item) throw new HttpError(404, 'Review not found.');
+  response.json({ item });
 }));
 ratingRouter.delete('/:titleId/reviews/:reviewId', authenticate, route(async (request, response) => {
   const { titleId, reviewId } = request.params;
