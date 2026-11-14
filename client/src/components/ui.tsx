@@ -30,7 +30,7 @@ export function MediaCard({ title, meta, to, trailing }: { title: Pick<MediaTitl
     <div className="media-card__body">
       <div className="media-card__title-row"><h3>{to ? <Link to={to}>{title.title}</Link> : title.title}</h3>{trailing}</div>
       <p className="media-card__meta">{meta || [title.releaseDate?.slice(0, 4), title.mediaType === 'movie' ? 'Film' : 'Series'].filter(Boolean).join(' · ')}</p>
-      {title.communityRatingCount ? <p className="media-card__rating"><span aria-label="Community rating">Showgraphy</span> {title.communityRating?.toFixed(1)} <span className="rating-count">({title.communityRatingCount})</span></p> : null}
+      {title.communityRatingCount ? <p className="media-card__rating"><span aria-label="Community rating">Showgraphy</span> {title.communityRating?.toFixed(2)} <span className="rating-count">({title.communityRatingCount})</span></p> : null}
       {title.anilistAverageScore != null ? <p className="media-card__rating"><span>AniList</span> {title.anilistAverageScore}/100</p> : null}
     </div>
   </article>;
