@@ -32,4 +32,12 @@ Base path: `/api`. JSON errors use `{ "message": "..." }`. Authenticated routes 
 - `PATCH /users/me`: profile, privacy, and theme preference update.
 - `GET /stats`: current user's privacy-aware statistics.
 
+## Global Chat
+
+- `GET /chat/messages?limit=50&before=<messageId>` returns the latest messages or the older page before a message cursor. `after=<messageId>` returns newer messages for reconnect catch-up. Limits are 1-100 and results are ordered oldest-first.
+- `POST /chat/messages/:id/report` files one report per user and message.
+- Socket.IO connects directly to the Render service at `/socket.io/` using the short-lived in-memory access JWT in the handshake auth payload. The Vercel `/api` rewrite is used by HTTP routes and is not used for the socket.
+- Client events: `chat:send` (acknowledged, idempotent client UUID), `chat:delete` (owner-only), and `chat:typing` (ephemeral).
+- Server events: `chat:message` (new or deleted message), `chat:presence` (unique online-user count), `chat:typing`, and `chat:auth-expired`.
+
 Pagination responses include `items`, `page`, `limit`, and `total`.

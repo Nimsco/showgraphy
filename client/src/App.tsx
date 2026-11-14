@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { Button, LoadingLine } from './components/ui';
@@ -11,6 +11,8 @@ import { JournalPage } from './pages/JournalPage';
 import { CollectionDetailPage, CollectionsPage, SharedCollectionPage } from './pages/CollectionsPage';
 import { DiscoverPage, LibraryPage, TitlePage } from './pages/CatalogPages';
 import { InsightsPage, ProfilePage, SettingsPage } from './pages/AccountPages';
+
+const GlobalChatPage = lazy(() => import('./pages/ChatPage').then(({ GlobalChatPage: page }) => ({ default: page })));
 
 function ProtectedLayout() {
   const { user, ready, restoreError, retryRestore } = useAuth();
@@ -80,6 +82,7 @@ export function App() {
         <Route path="collections" element={<CollectionsPage />} />
         <Route path="collections/:id" element={<CollectionDetailPage />} />
         <Route path="insights" element={<InsightsPage />} />
+        <Route path="chat" element={<GlobalChatPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="title/:id" element={<TitlePage />} />
       </Route>

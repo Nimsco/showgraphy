@@ -45,6 +45,19 @@ describe('API session handling', () => {
     await expect(api.restoreSession()).rejects.toMatchObject({ status: 401 });
   });
 
+  it('distinguishes an invalid refresh session from a temporary refresh network failure', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(json({ csrfToken: 'csrf' })).mockResolvedValueOnce(json({ message: 'Sign in to continue.' }, 401));
+    const unauthorizedApi = await freshApi();
+    await expect(unauthorizedApi.refreshAccessTokenStatus()).resolves.toBe('unauthorized');
+
+    fetchMock.mockReset().mockResolvedValueOnce(json({ csrfToken: 'csrf' })).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const temporaryFailureApi = await freshApi();
+    temporaryFailureApi.setAccessToken('keep-current-session');
+    await expect(temporaryFailureApi.refreshAccessTokenStatus()).resolves.toBe('retry');
+    expect(temporaryFailureApi.getAccessToken()).toBe('keep-current-session');
+  });
+
   it('retries a temporary network failure while restoring a session', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.mocked(fetch);
