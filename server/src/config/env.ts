@@ -16,7 +16,6 @@ const envSchema = z.object({
   JWT_ISSUER: z.string().default('showgraphy'),
   JWT_AUDIENCE: z.string().default('showgraphy-client'),
   REFRESH_COOKIE_NAME: z.string().default('refreshToken'),
-  COOKIE_DOMAIN: z.string().optional(),
   COOKIE_SECURE: z.string().default('false').transform((value) => value === 'true'),
   COOKIE_SAME_SITE: z.enum(['strict', 'lax', 'none']).default('lax'),
   CSRF_SECRET: z.string().optional(),
@@ -33,7 +32,7 @@ const envSchema = z.object({
   TMDB_READ_ACCESS_TOKEN: z.string().optional(),
   ANILIST_GRAPHQL_URL: z.string().default('https://graphql.anilist.co'),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
-  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(1000),
 });
 
 const parsed = envSchema.safeParse(process.env);

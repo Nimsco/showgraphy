@@ -21,7 +21,6 @@ export function setCsrfCookie(token: string, response: import('express').Respons
     secure: env.COOKIE_SECURE,
     sameSite: 'strict',
     path: '/',
-    ...(env.COOKIE_DOMAIN ? { domain: env.COOKIE_DOMAIN } : {}),
   });
 }
 

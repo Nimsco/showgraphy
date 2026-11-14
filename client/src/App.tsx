@@ -13,8 +13,9 @@ import { DiscoverPage, LibraryPage, TitlePage } from './pages/CatalogPages';
 import { InsightsPage, ProfilePage, SettingsPage } from './pages/AccountPages';
 
 function ProtectedLayout() {
-  const { user, ready } = useAuth();
+  const { user, ready, restoreError, retryRestore } = useAuth();
   if (!ready) return <main className="route-loading"><LoadingLine /></main>;
+  if (!user && restoreError) return <main className="route-loading"><section className="empty-state" role="alert"><h2>Showgraphy is reconnecting</h2><p>{restoreError}</p><p>Your browser could not confirm the saved session, so it has not been cleared.</p><Button variant="outline" onClick={() => void retryRestore()}>Retry connection</Button></section></main>;
   if (!user) return <Navigate to="/login" replace state={{ from: window.location.pathname + window.location.search }} />;
   if (user.usernameSetupRequired) return <UsernameSetupDialog />;
   return <Outlet />;
