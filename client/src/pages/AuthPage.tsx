@@ -32,7 +32,13 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const [registrationCode, setRegistrationCode] = useState('');
   const [registrationStarted, setRegistrationStarted] = useState(false);
   const [verifyingCode, setVerifyingCode] = useState(false);
-  const google = useQuery({ queryKey: ['auth-config'], queryFn: () => apiRequest<{ googleEnabled: boolean }>('/auth/config'), retry: false, staleTime: 60_000 });
+  const google = useQuery({
+    queryKey: ['auth-config'],
+    queryFn: () => apiRequest<{ googleEnabled: boolean }>('/auth/config'),
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 8_000),
+    staleTime: 60_000,
+  });
   const loginForm = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
   const registerForm = useForm<RegisterValues>({ resolver: zodResolver(registerSchema) });
   const submitting = isRegister ? registerForm.formState.isSubmitting : loginForm.formState.isSubmitting;
@@ -94,7 +100,8 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
           <Button type="submit" disabled={submitting} className="auth-submit">{submitting ? 'Opening your archive…' : 'Sign in'} <ArrowRight size={16} /></Button>
         </form>}
         <div className="auth-divider"><span>or</span></div>
-        <a className={`google-button${!google.data?.googleEnabled ? ' is-disabled' : ''}`} href={google.data?.googleEnabled ? `${getApiBase()}/auth/google` : undefined} aria-disabled={!google.data?.googleEnabled} onClick={(event) => { if (!google.data?.googleEnabled) event.preventDefault(); }}><span className="google-g">G</span>{google.data?.googleEnabled ? 'Continue with Google' : 'Google sign-in is not configured'}{google.data?.googleEnabled && <Check size={14} className="google-check" />}</a>
+        <a className={`google-button${!google.data?.googleEnabled ? ' is-disabled' : ''}`} href={google.data?.googleEnabled ? `${getApiBase()}/auth/google` : undefined} aria-disabled={!google.data?.googleEnabled} aria-busy={google.isPending} onClick={(event) => { if (!google.data?.googleEnabled) { event.preventDefault(); if (google.isError) void google.refetch(); } }}><span className="google-g">G</span>{google.data?.googleEnabled ? 'Continue with Google' : google.isPending ? 'Checking Google sign-in…' : google.isError ? 'Retry Google sign-in check' : 'Google sign-in is not configured'}{google.data?.googleEnabled && <Check size={14} className="google-check" />}</a>
+        {google.isError && <p className="quiet-line" role="status">Could not reach the backend to check Google sign-in. Select the button to try again.</p>}
         <p className="auth-switch">{isRegister ? 'Already have a journal?' : 'New to Showgraphy?'} <Link to={isRegister ? '/login' : '/register'}>{isRegister ? 'Sign in' : 'Create an account'}</Link></p>
         <p className="auth-terms">By continuing, you agree to keep your account details accurate and respect the privacy choices of other viewers.</p>
       </section>
