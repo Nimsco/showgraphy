@@ -70,7 +70,7 @@ libraryRouter.post('/', route(async (request, response) => {
   const title = await MediaTitle.findById(titleId);
   if (!title) throw new HttpError(404, 'Title not found.');
   const status = input.status ?? 'planned';
-  const episodesWatched = title.mediaType === 'movie' ? 0 : input.episodesWatched ?? 0;
+  const episodesWatched = title.mediaType === 'movie' ? 0 : status === 'completed' && title.totalEpisodes ? title.totalEpisodes : input.episodesWatched ?? 0;
   if (title.totalEpisodes && episodesWatched > title.totalEpisodes) throw new HttpError(400, 'Episode progress cannot exceed the title total.');
   const entry = await UserLibraryEntry.findOneAndUpdate(
     { userId: request.auth!.userId, titleId },
@@ -95,7 +95,7 @@ libraryRouter.patch('/:id', route(async (request, response) => {
   if (status === 'watching' && !current.startedAt) update.startedAt = new Date();
   if (status === 'completed' && !current.completedAt) update.completedAt = new Date();
   if (status !== 'completed') unset.completedAt = 1;
-  if (status === 'completed' && title.mediaType === 'series' && title.totalEpisodes && input.episodesWatched === undefined) update.episodesWatched = title.totalEpisodes;
+  if (status === 'completed' && title.mediaType === 'series' && title.totalEpisodes) update.episodesWatched = title.totalEpisodes;
   const entry = await UserLibraryEntry.findOneAndUpdate({ _id: current._id, userId: request.auth!.userId }, { $set: update, ...(Object.keys(unset).length ? { $unset: unset } : {}) }, { new: true }).populate('titleId');
   await syncWatchlist(request.auth!.userId, title._id, status);
   response.json({ item: entry });

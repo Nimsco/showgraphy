@@ -5,5 +5,6 @@ export { UserLibraryEntry } from './UserLibraryEntry.js';
 export { UserList } from './UserList.js';
 export { ListShare } from './ListShare.js';
 export { CommunityRating } from './CommunityRating.js';
+export { TitleReview } from './TitleReview.js';
 export { EmailActionToken } from './EmailActionToken.js';
 export { RegistrationChallenge } from './RegistrationChallenge.js';

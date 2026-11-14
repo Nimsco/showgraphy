@@ -4,6 +4,7 @@ export type WatchStatus = 'completed' | 'watching' | 'planned' | 'on-hold' | 'dr
 export interface User {
   id: string;
   username: string;
+  usernameSetupRequired: boolean;
   email: string;
   emailVerified: boolean;
   avatar: string;
@@ -81,9 +82,7 @@ export interface Statistics {
   series: number;
   completedMovies: number;
   completedSeries: number;
-  unestimatedTitles: number;
   episodes: number;
-  minutes: number;
   byCategory: Array<{ category: string; count: number }>;
   byMonth: Array<{ month: string; count: number }>;
 }

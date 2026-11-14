@@ -2,7 +2,7 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { z } from 'zod';
 import { authenticate, authenticateOptional } from '../middleware/authenticate.js';
-import { CommunityRating, MediaTitle, UserLibraryEntry } from '../models/index.js';
+import { CommunityRating, MediaTitle, TitleReview, UserLibraryEntry } from '../models/index.js';
 import { discoverCatalog, hydrateProviderTitle, searchCatalog } from '../services/catalog.service.js';
 import { HttpError, pageParams, route } from '../utils/http.js';
 
@@ -54,6 +54,27 @@ catalogRouter.get('/:id', authenticateOptional, route(async (request, response) 
 const ratingSchema = z.object({ rating: z.number().min(1).max(10).refine((value) => Number.isInteger(value * 2), 'Use whole or half-point ratings.') });
 
 export const ratingRouter = Router();
+ratingRouter.get('/:titleId/reviews', route(async (request, response) => {
+  const titleId = String(request.params.titleId);
+  if (!mongoose.isValidObjectId(titleId)) throw new HttpError(404, 'Title not found.');
+  const items = await TitleReview.find({ titleId }).sort({ createdAt: -1 }).limit(100).populate('userId', 'username avatar').lean();
+  response.json({ items });
+}));
+ratingRouter.post('/:titleId/reviews', authenticate, route(async (request, response) => {
+  const titleId = String(request.params.titleId);
+  if (!mongoose.isValidObjectId(titleId) || !(await MediaTitle.exists({ _id: titleId }))) throw new HttpError(404, 'Title not found.');
+  const { body } = z.object({ body: z.string().trim().min(10).max(3000) }).parse(request.body);
+  const item = await TitleReview.create({ userId: request.auth!.userId, titleId, body });
+  const populated = await item.populate('userId', 'username avatar');
+  response.status(201).json({ item: populated });
+}));
+ratingRouter.delete('/:titleId/reviews/:reviewId', authenticate, route(async (request, response) => {
+  const { titleId, reviewId } = request.params;
+  if (!mongoose.isValidObjectId(titleId) || !mongoose.isValidObjectId(reviewId)) throw new HttpError(404, 'Review not found.');
+  const deleted = await TitleReview.findOneAndDelete({ _id: reviewId, titleId, userId: request.auth!.userId });
+  if (!deleted) throw new HttpError(404, 'Review not found.');
+  response.status(204).end();
+}));
 ratingRouter.put('/:titleId/rating', authenticate, route(async (request, response) => {
   const rating = ratingSchema.parse(request.body).rating;
   const titleIdParam = String(request.params.titleId);
