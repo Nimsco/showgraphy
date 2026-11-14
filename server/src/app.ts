@@ -50,6 +50,7 @@ app.use(cookieParser());
 app.use('/api', rateLimit({ windowMs: env.RATE_LIMIT_WINDOW_MS, limit: env.RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false }));
 app.use('/api', csrfProtection);
 
+app.get('/health', (_request, response) => response.status(200).type('text/plain').send(`${env.APP_NAME} API is healthy and running.`));
 app.get('/api/health', (_request, response) => response.json({ status: 'ok', app: env.APP_NAME }));
 app.use('/api/auth', authRouter);
 app.use('/api/catalog', catalogRouter);

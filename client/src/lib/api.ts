@@ -1,8 +1,8 @@
 function resolveApiBase() {
   const configured = import.meta.env.VITE_API_BASE_URL;
   if (typeof window === 'undefined') return configured || '/api';
+  if (!configured) return '/api';
   const pageHost = window.location.hostname;
-  if (!configured) return import.meta.env.DEV ? '/api' : `${window.location.protocol}//${pageHost}:5000/api`;
   try {
     const base = new URL(configured);
     const localApiHost = ['localhost', '127.0.0.1', '[::1]'].includes(base.hostname);
