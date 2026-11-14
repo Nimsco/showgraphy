@@ -14,9 +14,9 @@ usersRouter.patch('/me', authenticate, route(async (request, response) => {
     bio: z.string().trim().max(280).optional(),
     avatar: z.url().or(z.literal('')).optional(),
     profileVisibility: z.enum(['public', 'private']).optional(),
-    themePreference: z.enum(['dark', 'light', 'system']).optional(),
+    themePreference: z.enum(['dark', 'light', 'ocean', 'forest', 'rose', 'sunset', 'ocean-light', 'sage-light', 'rose-light', 'sunset-light', 'system']).optional(),
     privacySettings: z.object({ showStats: z.boolean().optional(), showLists: z.boolean().optional(), showRatings: z.boolean().optional(), showActivity: z.boolean().optional(), showFavorites: z.boolean().optional() }).optional(),
-    favoriteTitleIds: z.array(z.string().refine(mongoose.isValidObjectId)).max(8).optional(),
+    favoriteTitleIds: z.array(z.string().refine(mongoose.isValidObjectId)).max(10).optional(),
   }).parse(request.body);
   const user = await User.findById(request.auth!.userId);
   if (!user) throw new HttpError(404, 'Account not found.');
@@ -47,7 +47,11 @@ usersRouter.get('/profiles/:username', authenticateOptional, route(async (reques
   const result: Record<string, unknown> = {
     profile: { username: user.username, avatar: user.avatar, bio: user.bio, createdAt: user.createdAt },
   };
-  if (user.privacySettings?.showFavorites !== false) result.favorites = await MediaTitle.find({ _id: { $in: user.favoriteTitleIds ?? [] } }).select('title poster backdrop mediaType releaseDate').lean();
+  if (user.privacySettings?.showFavorites !== false) {
+    const titles = await MediaTitle.find({ _id: { $in: user.favoriteTitleIds ?? [] } }).select('title poster backdrop mediaType releaseDate').lean();
+    const orderedTitles = new Map(titles.map((title) => [String(title._id), title]));
+    result.favorites = (user.favoriteTitleIds ?? []).map((id) => orderedTitles.get(String(id))).filter(Boolean);
+  }
   if (user.privacySettings?.showStats !== false) result.stats = await getUserStatistics(user._id);
   if (user.privacySettings?.showLists !== false) {
     result.lists = await UserList.find({ userId: user._id, visibility: 'public' }).select('name slug description orderedItems updatedAt').populate('orderedItems.titleId', 'title poster mediaType releaseDate').lean();

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, Monitor, Moon, Settings, Sun, UserRound, X } from 'lucide-react';
+import { BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, Palette, Settings, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { Logo, Button } from './ui';
@@ -65,8 +65,8 @@ export function AppShell() {
         <div className="topbar-title"><span className="topbar-kicker">showgraphy</span><span>{title}</span></div>
         <div className="topbar-actions">
           <NavLink className="topbar-search" to="/app/discover"><Compass size={16} /><span>Find a title</span><kbd>/</kbd></NavLink>
-          <Button variant="quiet" className="theme-toggle" onClick={cycle} aria-label={`Theme is ${preference}. Change theme`} title={`Theme: ${preference}`}>
-            {preference === 'light' ? <Sun size={17} /> : preference === 'system' ? <Monitor size={17} /> : <Moon size={17} />}
+          <Button variant="quiet" className="theme-toggle" onClick={cycle} aria-label={`Current theme: ${preference}. Cycle color theme`} title={`Theme: ${preference}`}>
+            <Palette size={17} />
           </Button>
           <Button variant="quiet" className="mobile-settings" aria-label="Account settings" onClick={() => navigate('/app/settings')}><Settings size={17} /></Button>
         </div>

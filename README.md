@@ -15,7 +15,7 @@ npm install
 npm run dev
 ```
 
-The Vite app runs at `http://localhost:5173`; the API runs at `http://localhost:5000/api`. Build with `npm run build`, typecheck with `npm run typecheck`, and run automated tests with `npm test`.
+The Vite app runs at `http://localhost:5173`; the API runs at `http://localhost:5000/api`. In development, Vite proxies `/api` requests to the API, so other LAN devices can use `http://<your-computer-LAN-IP>:5173` and only need inbound TCP port 5173 allowed through the computer's firewall. Leave `VITE_API_BASE_URL` blank for this setup. Set it only when the API runs on a different host; direct API access may also require allowing port 5000. Build with `npm run build`, typecheck with `npm run typecheck`, and run automated tests with `npm test`.
 
 The public landing page runs without a database. The root dev command keeps Vite running even when the API stops for missing MongoDB or secrets; use `npm run dev:web` to run only the UI. Sign-in and account features require the API configuration above.
 
@@ -24,7 +24,7 @@ The public landing page runs without a database. The root dev command keeps Vite
 - **TMDB catalog and ratings:** set `TMDB_API_KEY` or `TMDB_READ_ACCESS_TOKEN` on the server. Search and detail metadata, community vote averages, and vote counts are fetched by the API. The browser never receives the key.
 - **AniList:** configure `ANILIST_GRAPHQL_URL`. Anime metadata, average and mean scores, and AniList popularity are fetched through the public GraphQL API; AniList client credentials are not needed for public data.
 - **Provider credits:** TMDB attribution is included in the app footer. TMDB requires its logo and the notice that the product is not endorsed or certified by TMDB.
-- **Google sign-in:** set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_CALLBACK_URL`.
+- **Google sign-in:** set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_CALLBACK_URL`. For LAN devices, Google requires a public HTTPS callback host, and its exact callback URI must be registered in the OAuth client. Add that host as `FRONTEND_URL` too. The app forwards the browser host through Vite and returns the OAuth result to the same host.
 - **Email:** Configure `SMTP_HOST`, `SMTP_PORT`, optional SMTP credentials, `SMTP_SECURE`, and `SMTP_FROM` to send verification and password recovery links. Recovery requests always use a neutral response. Until SMTP is configured, email actions are safely unavailable.
 
 ## Security and data

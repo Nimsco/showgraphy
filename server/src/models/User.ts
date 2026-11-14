@@ -19,7 +19,7 @@ const userSchema = new Schema({
   accountStatus: { type: String, enum: ['active', 'disabled'], default: 'active' },
   profileVisibility: { type: String, enum: ['public', 'private'], default: 'public' },
   privacySettings: { type: privacySchema, default: () => ({}) },
-  themePreference: { type: String, enum: ['dark', 'light', 'system'], default: 'dark' },
+  themePreference: { type: String, enum: ['dark', 'light', 'ocean', 'forest', 'rose', 'sunset', 'ocean-light', 'sage-light', 'rose-light', 'sunset-light', 'system'], default: 'dark' },
   favoriteTitleIds: [{ type: Schema.Types.ObjectId, ref: 'MediaTitle' }],
 }, { timestamps: true, versionKey: false });
 

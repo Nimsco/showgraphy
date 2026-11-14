@@ -37,6 +37,7 @@ type AniListMedia = {
   bannerImage?: string | null;
   startDate?: { year?: number | null; month?: number | null; day?: number | null };
   episodes?: number | null;
+  duration?: number | null;
   seasonYear?: number | null;
   format?: string | null;
   countryOfOrigin?: string | null;
@@ -49,6 +50,12 @@ type AniListMedia = {
 
 const searchCache = new Map<string, { expiresAt: number; value: unknown }>();
 const searchCacheTtl = 3 * 60_000;
+const incompleteHydrationAttempts = new Map<string, number>();
+const incompleteHydrationRetryMs = 5 * 60_000;
+
+function hasEstimateMetadata(title: { mediaType: string; runtime?: number | null; totalEpisodes?: number | null }) {
+  return Number(title.runtime ?? 0) > 0 && (title.mediaType === 'movie' || Number(title.totalEpisodes ?? 0) > 0);
+}
 
 const tmdbGenreNames: Record<number, string> = {
   12: 'Adventure', 14: 'Fantasy', 16: 'Animation', 18: 'Drama', 27: 'Horror', 28: 'Action',
@@ -66,10 +73,11 @@ function tmdbCategories(item: TmdbItem, mediaType: 'movie' | 'series'): string[]
   const categories = [mediaType === 'movie' ? 'movies' : 'tv-shows'];
   const language = item.original_language?.toLowerCase();
   const origin = (item.origin_country ?? []).map((country) => country.toUpperCase());
-  if (item.genre_ids?.includes(16) && language === 'ja') categories.push('anime');
-  if (origin.includes('KR')) categories.push('k-dramas');
-  if (origin.includes('CN')) categories.push('c-dramas');
-  if (origin.includes('JP')) categories.push('j-dramas');
+  const anime = item.genre_ids?.includes(16) && language === 'ja';
+  if (anime) categories.push('anime');
+  if (!anime && origin.includes('KR')) categories.push('k-dramas');
+  if (!anime && origin.includes('CN')) categories.push('c-dramas');
+  if (!anime && origin.includes('JP')) categories.push('j-dramas');
   if (origin.includes('TH')) categories.push('thai-dramas');
   if (item.genre_ids?.includes(99)) categories.push('documentaries');
   if (item.genre_ids?.includes(10764)) categories.push('reality-shows');
@@ -136,18 +144,20 @@ async function upsertAniList(item: AniListMedia) {
     backdrop: item.bannerImage ?? '',
     releaseDate: date,
     totalEpisodes: item.episodes ?? undefined,
+    runtime: item.duration ?? undefined,
     metadataSource: 'anilist',
     anilistAverageScore: item.averageScore ?? undefined,
     anilistMeanScore: item.meanScore ?? undefined,
     anilistPopularity: item.popularity ?? undefined,
     ratingsCheckedAt: new Date(),
+    metadataCheckedAt: new Date(),
     'providerIds.anilist': String(item.id),
   } }, { new: true, upsert: true, setDefaultsOnInsert: true });
 }
 
 async function searchAniList(query: string, page: number) {
   const body = {
-    query: `query ($search: String, $page: Int) { Page(page: $page, perPage: 20) { pageInfo { lastPage } media(search: $search, type: ANIME, sort: SEARCH_MATCH) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } } }`,
+    query: `query ($search: String, $page: Int) { Page(page: $page, perPage: 20) { pageInfo { lastPage } media(search: $search, type: ANIME, sort: SEARCH_MATCH) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes duration seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } } }`,
     variables: { search: query, page },
   };
   const response = await fetch(env.ANILIST_GRAPHQL_URL, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body) });
@@ -160,7 +170,7 @@ async function searchAniList(query: string, page: number) {
 
 async function trendingAniList(page: number) {
   const body = {
-    query: `query ($page: Int) { Page(page: $page, perPage: 20) { pageInfo { lastPage } media(type: ANIME, sort: TRENDING_DESC) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } } }`,
+    query: `query ($page: Int) { Page(page: $page, perPage: 20) { pageInfo { lastPage } media(type: ANIME, sort: TRENDING_DESC) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes duration seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } } }`,
     variables: { page },
   };
   const response = await fetch(env.ANILIST_GRAPHQL_URL, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body) });
@@ -209,12 +219,17 @@ export async function hydrateProviderTitle(titleId: string) {
   const tmdbId = title.providerIds?.tmdb;
   const anilistId = title.providerIds?.anilist;
   const hasTmdbCredentials = Boolean(env.TMDB_API_KEY || env.TMDB_READ_ACCESS_TOKEN);
-  const ratingsAreFresh = title.ratingsCheckedAt && Date.now() - title.ratingsCheckedAt.getTime() < 7 * 86_400_000;
-  if (ratingsAreFresh && title.metadataCheckedAt && Date.now() - title.metadataCheckedAt.getTime() < 7 * 86_400_000) return title;
+  const estimateMetadataIsComplete = hasEstimateMetadata(title);
+  const lastIncompleteAttempt = incompleteHydrationAttempts.get(String(title._id)) ?? 0;
+  if (!estimateMetadataIsComplete && Date.now() - lastIncompleteAttempt < incompleteHydrationRetryMs) return title;
+  if (!estimateMetadataIsComplete) incompleteHydrationAttempts.set(String(title._id), Date.now());
+  const ratingsAreFresh = Boolean(title.ratingsCheckedAt && Date.now() - title.ratingsCheckedAt.getTime() < 7 * 86_400_000);
+  const metadataIsFresh = estimateMetadataIsComplete && Boolean(title.metadataCheckedAt && Date.now() - title.metadataCheckedAt.getTime() < 7 * 86_400_000);
+  if (ratingsAreFresh && metadataIsFresh) return title;
 
-  if (anilistId && !ratingsAreFresh) {
+  if (anilistId && (!ratingsAreFresh || !metadataIsFresh)) {
     const body = {
-      query: `query ($id: Int) { Media(id: $id, type: ANIME) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } }`,
+      query: `query ($id: Int) { Media(id: $id, type: ANIME) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes duration seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } }`,
       variables: { id: Number(anilistId) },
     };
     try {
@@ -232,7 +247,7 @@ export async function hydrateProviderTitle(titleId: string) {
     await title.save();
   }
 
-  if (!tmdbId || !hasTmdbCredentials || ratingsAreFresh && title.metadataCheckedAt) return title;
+  if (!tmdbId || !hasTmdbCredentials || ratingsAreFresh && metadataIsFresh) return title;
   const type = title.mediaType === 'movie' ? 'movie' : 'tv';
   const url = new URL(`https://api.themoviedb.org/3/${type}/${encodeURIComponent(tmdbId)}`);
   if (!env.TMDB_READ_ACCESS_TOKEN) url.searchParams.set('api_key', env.TMDB_API_KEY!);
@@ -249,9 +264,10 @@ export async function hydrateProviderTitle(titleId: string) {
     if (title.mediaType === 'movie') categories.add('movies');
     else categories.add('tv-shows');
     const countries = details.origin_country ?? details.production_countries?.map((country) => country.iso_3166_1) ?? title.countries;
-    if (countries?.includes('KR')) categories.add('k-dramas');
-    if (countries?.includes('CN')) categories.add('c-dramas');
-    if (countries?.includes('JP')) categories.add('j-dramas');
+    const anime = categories.has('anime');
+    if (!anime && countries?.includes('KR')) categories.add('k-dramas');
+    if (!anime && countries?.includes('CN')) categories.add('c-dramas');
+    if (!anime && countries?.includes('JP')) categories.add('j-dramas');
     if (countries?.includes('TH')) categories.add('thai-dramas');
     return MediaTitle.findByIdAndUpdate(title._id, { $set: {
       ...(details.title || details.name ? { title: details.title || details.name } : {}),

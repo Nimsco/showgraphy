@@ -17,6 +17,18 @@ const recoveryLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 5, standardHea
 const registrationLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { message: 'Please wait before requesting another registration code.' } });
 const registrationVerifyLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, message: { message: 'Too many verification attempts. Try again shortly.' } });
 
+function frontendOrigin(request: import('express').Request) {
+  if (env.NODE_ENV !== 'development') return env.FRONTEND_URL;
+  const host = request.get('x-forwarded-host');
+  if (!host) return env.FRONTEND_URL;
+  const protocol = request.get('x-forwarded-proto') || 'http';
+  try { return new URL(`${protocol}://${host}`).origin; } catch { return env.FRONTEND_URL; }
+}
+
+function isLoopback(host: string) {
+  return ['localhost', '127.0.0.1', '[::1]'].includes(host.toLowerCase());
+}
+
 const registerSchema = z.object({
   username: z.string().trim().toLowerCase().min(3).max(24).regex(/^[a-z0-9_]+$/, 'Use letters, numbers, or underscores.'),
   email: z.email().trim().toLowerCase().max(254),
@@ -177,9 +189,14 @@ authRouter.delete('/sessions/:id', authenticate, route(async (request, response)
   response.status(204).end();
 }));
 
-authRouter.get('/google', route(async (_request, response) => {
+authRouter.get('/google', route(async (request, response) => {
   const client = googleClient();
   if (!client) throw new HttpError(503, 'Google sign-in is not configured.');
+  const browserOrigin = new URL(frontendOrigin(request));
+  const callbackOrigin = new URL(env.GOOGLE_CALLBACK_URL);
+  if (env.NODE_ENV === 'development' && !isLoopback(browserOrigin.hostname) && isLoopback(callbackOrigin.hostname)) {
+    throw new HttpError(503, 'Google sign-in from another device needs a public HTTPS callback URL. Configure GOOGLE_CALLBACK_URL and register it in the Google OAuth client.');
+  }
   const state = randomBytes(24).toString('hex');
   response.cookie('sg_google_state', state, { httpOnly: true, sameSite: 'lax', secure: env.COOKIE_SECURE, maxAge: 5 * 60_000, path: '/api/auth/google' });
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -220,5 +237,5 @@ authRouter.get('/google/callback', route(async (request, response) => {
   }
   if (user.accountStatus !== 'active') throw new HttpError(403, 'This account is unavailable.');
   await issueSession(user, request, response);
-  response.redirect(new URL('/app?google=connected', env.FRONTEND_URL).toString());
+  response.redirect(new URL('/app?google=connected', frontendOrigin(request)).toString());
 }));
