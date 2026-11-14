@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, Film, Heart, Plus, Search, SlidersHorizontal, Star, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Film, Heart, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Button, EmptyState, FieldError, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
@@ -123,7 +123,7 @@ export function DiscoverPage() {
   </div>;
 }
 
-function LibraryEntryCard({ entry, onChange }: { entry: LibraryEntry; onChange: (entryId: string, body: Record<string, unknown>) => Promise<void> }) {
+function LibraryEntryCard({ entry, onChange, onRemove }: { entry: LibraryEntry; onChange: (entryId: string, body: Record<string, unknown>) => Promise<void>; onRemove: (entry: LibraryEntry) => Promise<void> }) {
   const [episodes, setEpisodes] = useState(entry.episodesWatched);
   const [message, setMessage] = useState('');
   async function saveProgress(event: FormEvent) {
@@ -134,7 +134,7 @@ function LibraryEntryCard({ entry, onChange }: { entry: LibraryEntry; onChange: 
   }
   return <article className="library-entry">
     <Link to={titlePath(entry.titleId)} className="library-entry__poster"><Poster title={entry.titleId} /></Link>
-    <div className="library-entry__main"><div className="library-entry__heading"><div><p className="eyebrow">{entry.titleId.releaseDate?.slice(0, 4) || (entry.titleId.mediaType === 'movie' ? 'Movie' : 'Series')} · {entry.titleId.mediaType === 'movie' ? 'Film' : 'Series'}</p><h2><Link to={titlePath(entry.titleId)}>{entry.titleId.title}</Link></h2><p className="media-card__meta">{entry.titleId.categories?.map((item) => item.replaceAll('-', ' ')).join(' · ')}</p></div><label className="status-select-label"><span className="visually-hidden">Status for {entry.titleId.title}</span><select value={entry.status} onChange={(event) => void onChange(entry._id, { status: event.target.value })}>{statuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label></div>
+    <div className="library-entry__main"><div className="library-entry__heading"><div><p className="eyebrow">{entry.titleId.releaseDate?.slice(0, 4) || (entry.titleId.mediaType === 'movie' ? 'Movie' : 'Series')} · {entry.titleId.mediaType === 'movie' ? 'Film' : 'Series'}</p><h2><Link to={titlePath(entry.titleId)}>{entry.titleId.title}</Link></h2><p className="media-card__meta">{entry.titleId.categories?.map((item) => item.replaceAll('-', ' ')).join(' · ')}</p></div><label className="status-select-label"><span className="visually-hidden">Status for {entry.titleId.title}</span><select value={entry.status} onChange={(event) => void onChange(entry._id, { status: event.target.value })}>{statuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label><Button type="button" variant="outline" className="library-remove" onClick={() => void onRemove(entry)} aria-label={`Remove ${entry.titleId.title} from your library`}><Trash2 size={14} /><span>Remove</span></Button></div>
       {entry.titleId.mediaType === 'series' && <form className="progress-edit" onSubmit={saveProgress}><label>Episodes watched <input type="number" min={0} max={entry.titleId.totalEpisodes || 10000} value={episodes} onChange={(event) => setEpisodes(Number(event.target.value))} /></label>{entry.titleId.totalEpisodes ? <span>of {entry.titleId.totalEpisodes}</span> : null}<Button type="submit" variant="outline"><Check size={14} /> Save progress</Button><span role="status">{message}</span></form>}
       {entry.notes && <p className="library-note">{entry.notes}</p>}
     </div>
@@ -157,6 +157,18 @@ export function LibraryPage() {
     try { setChangeError(''); await apiRequest(`/library/${entryId}`, { method: 'PATCH', body: JSON.stringify(body) }); await client.invalidateQueries({ queryKey: ['library'] }); await client.invalidateQueries({ queryKey: ['stats'] }); }
     catch (error) { setChangeError(error instanceof Error ? error.message : 'The entry could not be updated.'); }
   }
+  async function removeEntry(entry: LibraryEntry) {
+    try {
+      setChangeError('');
+      await apiRequest(`/library/${entry._id}`, { method: 'DELETE' });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['library'] }),
+        client.invalidateQueries({ queryKey: ['lists'] }),
+        client.invalidateQueries({ queryKey: ['stats'] }),
+        client.invalidateQueries({ queryKey: ['title', entry.titleId._id] }),
+      ]);
+    } catch (error) { setChangeError(error instanceof Error ? error.message : 'The title could not be removed from your library.'); }
+  }
   function chooseStatus(value: string) { setStatus(value); const next = new URLSearchParams(params); if (value) next.set('status', value); else next.delete('status'); setParams(next); }
 
   return <div className="page-wrap library-page">
@@ -168,7 +180,7 @@ export function LibraryPage() {
     </section>
     <div className="results-heading"><p>{result.data ? `${result.data.total} ${result.data.total === 1 ? 'title' : 'titles'} in this view` : 'Your personal collection'}</p><Link to="/app/collections" className="inline-arrow">Open collections <ArrowRight size={14} /></Link></div>
     {changeError && <p className="form-alert" role="alert">{changeError}</p>}
-    {result.isLoading ? <LoadingLine label="Opening your library" /> : result.error ? <EmptyState title="Your library could not load" description={result.error instanceof Error ? result.error.message : 'Check the connection and try again.'} action={<Button variant="outline" onClick={() => void result.refetch()}>Try again</Button>} /> : result.data?.items.length ? <><div className="library-entries">{result.data.items.map((entry) => <LibraryEntryCard key={entry._id} entry={entry} onChange={changeEntry} />)}</div><PageControls page={page} totalPages={Math.ceil(result.data.total / result.data.limit)} onChange={setPage} /></> : <EmptyState title={status ? 'Nothing in this section yet' : 'Your library is waiting for a first title'} description="Search the catalog or add a title by hand. The collection will grow from your own viewing history." action={<Link className="button button--primary" to="/app/discover"><Search size={16} /> Find a title</Link>} icon={<Film size={22} />} />}
+    {result.isLoading ? <LoadingLine label="Opening your library" /> : result.error ? <EmptyState title="Your library could not load" description={result.error instanceof Error ? result.error.message : 'Check the connection and try again.'} action={<Button variant="outline" onClick={() => void result.refetch()}>Try again</Button>} /> : result.data?.items.length ? <><div className="library-entries">{result.data.items.map((entry) => <LibraryEntryCard key={entry._id} entry={entry} onChange={changeEntry} onRemove={removeEntry} />)}</div><PageControls page={page} totalPages={Math.ceil(result.data.total / result.data.limit)} onChange={setPage} /></> : <EmptyState title={status ? 'Nothing in this section yet' : 'Your library is waiting for a first title'} description="Search the catalog or add a title by hand. The collection will grow from your own viewing history." action={<Link className="button button--primary" to="/app/discover"><Search size={16} /> Find a title</Link>} icon={<Film size={22} />} />}
   </div>;
 }
 

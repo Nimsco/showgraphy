@@ -1,4 +1,4 @@
-export type ThemePreference = 'dark' | 'light' | 'system';
+export type ThemePreference = 'dark' | 'light' | 'ocean' | 'forest' | 'rose' | 'sunset' | 'ocean-light' | 'sage-light' | 'rose-light' | 'sunset-light' | 'system';
 export type WatchStatus = 'completed' | 'watching' | 'planned' | 'on-hold' | 'dropped';
 
 export interface User {
@@ -79,6 +79,9 @@ export interface Statistics {
   dropped: number;
   movies: number;
   series: number;
+  completedMovies: number;
+  completedSeries: number;
+  unestimatedTitles: number;
   episodes: number;
   minutes: number;
   byCategory: Array<{ category: string; count: number }>;

@@ -1,4 +1,19 @@
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+function resolveApiBase() {
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  if (typeof window === 'undefined') return configured || '/api';
+  const pageHost = window.location.hostname;
+  if (!configured) return import.meta.env.DEV ? '/api' : `${window.location.protocol}//${pageHost}:5000/api`;
+  try {
+    const base = new URL(configured);
+    const localApiHost = ['localhost', '127.0.0.1', '[::1]'].includes(base.hostname);
+    if (import.meta.env.DEV && localApiHost) return '/api';
+    const pageIsRemote = !['localhost', '127.0.0.1', '[::1]'].includes(pageHost);
+    if (localApiHost && pageIsRemote) base.hostname = pageHost;
+    return base.toString().replace(/\/$/, '');
+  } catch { return configured; }
+}
+
+const apiBase = resolveApiBase();
 let accessToken: string | null = null;
 let csrfToken: string | null = null;
 let csrfPromise: Promise<string> | null = null;

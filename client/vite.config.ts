@@ -17,9 +17,23 @@ function siteFiles(siteUrl: string): Plugin {
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, process.cwd(), 'VITE_');
   const siteUrl = (environment.VITE_SITE_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const configuredApi = environment.VITE_API_BASE_URL;
+  const apiTarget = configuredApi?.startsWith('http') ? new URL(configuredApi) : new URL('http://127.0.0.1:5000/api');
   return {
     plugins: [react(), tailwindcss(), siteFiles(siteUrl)],
-    server: { host: '0.0.0.0', port: 5173, strictPort: true },
+    server: {
+      host: '0.0.0.0', port: 5173, strictPort: true,
+      proxy: { '/api': {
+        target: apiTarget.origin,
+        changeOrigin: true,
+        configure(proxy) {
+          proxy.on('proxyReq', (proxyRequest, request) => {
+            if (request.headers.host) proxyRequest.setHeader('x-forwarded-host', request.headers.host);
+            proxyRequest.setHeader('x-forwarded-proto', request.headers['x-forwarded-proto'] || 'http');
+          });
+        },
+      } },
+    },
     test: { environment: 'jsdom', setupFiles: './src/testSetup.ts' },
   };
 });

@@ -6,6 +6,19 @@ import type { ThemePreference, User } from '../types';
 type ThemeValue = { preference: ThemePreference; setPreference: (preference: ThemePreference) => void; cycle: () => void };
 const ThemeContext = createContext<ThemeValue | null>(null);
 const key = 'showgraphy-theme';
+export const themeOptions = [
+  { value: 'light', label: 'Lavender paper' },
+  { value: 'ocean-light', label: 'Ocean daylight' },
+  { value: 'sage-light', label: 'Sage paper' },
+  { value: 'rose-light', label: 'Rose paper' },
+  { value: 'sunset-light', label: 'Warm sand' },
+  { value: 'dark', label: 'Midnight orchid' },
+  { value: 'ocean', label: 'Ocean night' },
+  { value: 'forest', label: 'Forest night' },
+  { value: 'rose', label: 'Rose night' },
+  { value: 'sunset', label: 'Sunset night' },
+  { value: 'system', label: 'Follow system' },
+] as const satisfies readonly { value: ThemePreference; label: string }[];
 
 function resolveTheme(preference: ThemePreference) {
   if (preference !== 'system') return preference;
@@ -16,7 +29,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const { user, updateUser } = useAuth();
   const [preference, setValue] = useState<ThemePreference>(() => {
     const stored = localStorage.getItem(key);
-    return stored === 'light' || stored === 'system' || stored === 'dark' ? stored : 'dark';
+    return themeOptions.find((option) => option.value === stored)?.value ?? 'dark';
   });
 
   useEffect(() => {
@@ -43,7 +56,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         .then((result) => updateUser(result.user)).catch(() => undefined);
     }
   }, [user, updateUser]);
-  const cycle = useCallback(() => setPreference(preference === 'dark' ? 'light' : preference === 'light' ? 'system' : 'dark'), [preference, setPreference]);
+  const cycle = useCallback(() => {
+    const current = themeOptions.findIndex((option) => option.value === preference);
+    setPreference(themeOptions[(current + 1) % themeOptions.length]!.value);
+  }, [preference, setPreference]);
   const value = useMemo(() => ({ preference, setPreference, cycle }), [preference, setPreference, cycle]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
