@@ -20,7 +20,8 @@ const apiBase = resolveApiBase();
 let accessToken: string | null = null;
 let csrfToken: string | null = null;
 let csrfPromise: Promise<string> | null = null;
-let refreshPromise: Promise<boolean> | null = null;
+type RefreshResult = 'refreshed' | 'unauthorized' | 'retry';
+let refreshPromise: Promise<RefreshResult> | null = null;
 let sessionRestorePromise: Promise<{ accessToken: string; user: import('../types/index.js').User }> | null = null;
 
 export class ApiError extends Error {
@@ -36,6 +37,8 @@ function logApiFailure(method: string, endpoint: string, status: number | null, 
 
 export function setAccessToken(token: string | null) { accessToken = token; }
 export function getAccessToken() { return accessToken; }
+export async function refreshAccessToken(): Promise<boolean> { return (await rotateAccessToken()) === 'refreshed'; }
+export async function refreshAccessTokenStatus(): Promise<RefreshResult> { return rotateAccessToken(); }
 
 async function getCsrf(): Promise<string> {
   if (csrfToken) return csrfToken;
@@ -61,7 +64,7 @@ async function withRefreshLock<T>(work: () => Promise<T>): Promise<T> {
   return locks ? locks.request('showgraphy-refresh-token', work) : work();
 }
 
-async function rotateAccessToken(): Promise<boolean> {
+async function rotateAccessToken(): Promise<RefreshResult> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     const rotate = async () => {
@@ -73,14 +76,14 @@ async function rotateAccessToken(): Promise<boolean> {
         });
         if (!response.ok) {
           logApiFailure('POST', '/auth/refresh', response.status, response.status === 401 ? 'refresh token missing, expired, or revoked' : `HTTP ${response.status}`);
-          return false;
+          return response.status === 401 ? 'unauthorized' : 'retry';
         }
         const result = await response.json() as { accessToken: string };
         accessToken = result.accessToken;
-        return true;
+        return 'refreshed';
       } catch (error) {
         logApiFailure('POST', '/auth/refresh', null, error instanceof Error ? error.name : 'network failure');
-        return false;
+        return 'retry';
       }
     };
     try {
@@ -89,7 +92,7 @@ async function rotateAccessToken(): Promise<boolean> {
       return await withRefreshLock(rotate);
     } catch (error) {
       logApiFailure('POST', '/auth/refresh', null, error instanceof Error ? error.name : 'refresh lock failure');
-      return false;
+      return 'retry';
     }
     finally { refreshPromise = null; }
   })();
@@ -115,7 +118,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   };
   let response = await makeRequest();
   if (response.status === 401 && accessToken && !path.startsWith('/auth/')) {
-    if (await rotateAccessToken()) {
+    if (await rotateAccessToken() === 'refreshed') {
       headers.set('authorization', `Bearer ${accessToken}`);
       response = await makeRequest();
     }

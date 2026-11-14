@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, Palette, Settings, UserRound, X } from 'lucide-react';
+import { BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, Palette, Settings, UserRound, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { Logo, Button } from './ui';
@@ -12,11 +12,12 @@ const navigation = [
   { to: '/app/library', label: 'Library', icon: Library },
   { to: '/app/collections', label: 'Collections', icon: ListMusic },
   { to: '/app/insights', label: 'Insights', icon: ChartNoAxesCombined },
+  { to: '/app/chat', label: 'Global Chat', icon: MessageCircle },
 ];
 
 const pageTitles: Record<string, string> = {
   '/app': 'Your journal', '/app/discover': 'Discover', '/app/library': 'The library',
-  '/app/collections': 'Collections', '/app/insights': 'Insights', '/app/settings': 'Account settings',
+  '/app/collections': 'Collections', '/app/insights': 'Insights', '/app/chat': 'Global Chat', '/app/settings': 'Account settings',
 };
 
 export function AppShell() {

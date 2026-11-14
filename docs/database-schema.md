@@ -12,6 +12,8 @@ All models use timestamps and explicit indexes. IDs are Mongo ObjectIds. The use
 | ListShare | List/owner, hashed high-entropy token, expiration and revocation. Lookup by hash; share tokens are never stored in clear text. |
 | CommunityRating | User/title/rating. Unique `(userId,titleId)`; the title aggregate is computed server-side. |
 | EmailActionToken | Hashed one-use email verification or password reset token with expiration and consumption timestamp. TTL on `expiresAt`; raw tokens are sent only by email. |
+| ChatMessage | Global room text, author and client-message ID, username/avatar snapshot, timestamps, and soft-delete timestamp. Unique `(authorId,clientMessageId)` supports safe retries; `(createdAt,_id)` supports cursor history. |
+| ChatReport | One report per `(messageId,reporterId)`, with a validated reason, optional details, status, and timestamps. |
 
 Relationships: a user has many library entries, lists, refresh sessions, and community ratings. Entries and ratings reference one normalized title. Lists contain ordered title references. Shares reference one list and its owner. Deleting an account removes owned records, shares, and sessions; ratings can be removed or anonymized by the account deletion service.
 
