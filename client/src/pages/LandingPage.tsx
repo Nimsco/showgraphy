@@ -46,6 +46,6 @@ export function LandingPage() {
         </div>
       </section>
     </main>
-    <footer className="landing-footer"><Logo /><span>Stories stay with us.</span><ProviderCredits /></footer>
+    <footer className="landing-footer"><Logo /><span>Stories stay with us.</span><ProviderCredits /><a className="design-credit" href="https://www.designlounge.live" target="_blank" rel="noreferrer">Designed using Design Lounge</a></footer>
   </div>;
 }

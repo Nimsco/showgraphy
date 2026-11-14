@@ -44,3 +44,9 @@ The live Stitch project is **Showgraphy Cinematic Dashboard** (`projects/4332847
 - Collections, insights, profile, settings, and sign-in share the same typography, spacing, borders, and interaction states.
 
 Use real account data. Never ship sample counts, ratings, activity, or reviews as if they belong to a viewer. Keep keyboard focus visible, touch targets comfortable, and layouts usable on narrow screens.
+
+## Appearance themes
+
+Keep Midnight Orchid as the default. The Clear Light palette uses neutral white and gray surfaces with a deep orchid accent. Other dark palettes share opaque graphite surfaces; only controls and selected states carry their sea, moss, rose, or amber accent. This keeps content crisp and avoids a color wash over every panel. Text and primary-action pairs are selected to exceed WCAG AA's 4.5:1 contrast target for normal text.
+
+Sources: [Paper & Ink](https://www.designlounge.live/themes/paper-ink) for a readable paper ground, [Night Desk](https://www.designlounge.live/themes/night-desk) for restrained dark surfaces, and [WCAG 2.2 contrast minimum](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum).

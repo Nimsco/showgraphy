@@ -7,18 +7,24 @@ type ThemeValue = { preference: ThemePreference; setPreference: (preference: The
 const ThemeContext = createContext<ThemeValue | null>(null);
 const key = 'showgraphy-theme';
 export const themeOptions = [
-  { value: 'light', label: 'Lavender paper' },
+  { value: 'light', label: 'Clear light' },
   { value: 'ocean-light', label: 'Ocean daylight' },
   { value: 'sage-light', label: 'Sage paper' },
   { value: 'rose-light', label: 'Rose paper' },
   { value: 'sunset-light', label: 'Warm sand' },
   { value: 'dark', label: 'Midnight orchid' },
-  { value: 'ocean', label: 'Ocean night' },
-  { value: 'forest', label: 'Forest night' },
-  { value: 'rose', label: 'Rose night' },
-  { value: 'sunset', label: 'Sunset night' },
+  { value: 'ocean', label: 'Slate and sea' },
+  { value: 'forest', label: 'Slate and moss' },
+  { value: 'rose', label: 'Slate and rose' },
+  { value: 'sunset', label: 'Slate and amber' },
   { value: 'system', label: 'Follow system' },
 ] as const satisfies readonly { value: ThemePreference; label: string }[];
+
+export const themeGroups = [
+  { label: 'Light', options: themeOptions.filter(({ value }) => value.endsWith('-light') || value === 'light') },
+  { label: 'Dark', options: themeOptions.filter(({ value }) => !value.endsWith('-light') && value !== 'light' && value !== 'system') },
+  { label: 'System', options: themeOptions.filter(({ value }) => value === 'system') },
+] as const;
 
 function resolveTheme(preference: ThemePreference) {
   if (preference !== 'system') return preference;
