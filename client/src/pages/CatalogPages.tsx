@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, Film, Heart, MessageSquareText, Pencil, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Film, Heart, MessageSquareText, Pencil, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Button, EmptyState, FieldError, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
@@ -89,7 +89,7 @@ function ManualTitleDialog({ onClose, onCreated }: { onClose: () => void; onCrea
         <label>Genres, separated by commas<input {...form.register('genresText')} placeholder="Drama, mystery" /></label>
         <label>Poster URL, optional<input type="url" {...form.register('poster')} placeholder="https://…" /><FieldError>{form.formState.errors.poster?.message}</FieldError></label>
         <label>Short description<textarea rows={3} {...form.register('synopsis')} placeholder="What do you want to remember?" /></label>
-        <div className="dialog-actions"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Adding title…' : 'Add to my watchlist'} <ArrowRight size={15} /></Button></div>
+        <div className="dialog-actions"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Adding title…' : 'Add to watchlist'} <ArrowRight size={15} /></Button></div>
       </form>
     </section>
   </div>;
@@ -216,7 +216,7 @@ export function TitlePage() {
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
   const [collectionPicker, setCollectionPicker] = useState(false);
   const collections = useQuery({ queryKey: ['lists'], queryFn: () => apiRequest<{ items: UserList[] }>('/lists'), enabled: collectionPicker });
-  useEffect(() => { if (detail.data?.myCommunityRating) setRating(String(detail.data.myCommunityRating)); }, [detail.data?.myCommunityRating]);
+  useEffect(() => { setRating(detail.data?.myCommunityRating == null ? '' : detail.data.myCommunityRating.toFixed(2)); }, [detail.data?.myCommunityRating]);
 
   if (detail.isLoading) return <div className="page-wrap"><LoadingLine label="Opening title details" /></div>;
   if (detail.error || !detail.data) return <div className="page-wrap"><EmptyState title="Title not found" description={detail.error instanceof Error ? detail.error.message : 'This title may have been removed.'} action={<Link className="button button--outline" to="/app/discover"><ArrowLeft size={15} /> Back to discover</Link>} /></div>;
@@ -231,12 +231,12 @@ export function TitlePage() {
       await queryClient.invalidateQueries({ queryKey: ['title', id] });
       await queryClient.invalidateQueries({ queryKey: ['library'] });
       await queryClient.invalidateQueries({ queryKey: ['stats'] });
-      setNotice(libraryEntry ? 'Your library entry was updated.' : 'Added to your watchlist.');
+      setNotice(libraryEntry ? 'Your library entry was updated.' : 'Added to your library.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'The library could not be updated.'); }
   }
-  async function saveRating(nextRating: string) {
-    if (!nextRating || ratingSaving || nextRating === rating) return;
-    const previousRating = rating;
+  async function saveRating(nextRating: string, force = false) {
+    if (!nextRating || ratingSaving || (!force && nextRating === rating)) return;
+    const previousRating = detail.data?.myCommunityRating == null ? '' : String(detail.data.myCommunityRating);
     setRating(nextRating);
     setRatingSaving(true);
     try {
@@ -309,7 +309,7 @@ export function TitlePage() {
           <div className="title-tags">{item.categories?.map((tag) => <span key={tag}>{tag.replaceAll('-', ' ')}</span>)}{item.genres?.slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}</div>
           <p className="title-synopsis">{item.synopsis || 'No description has been added for this title yet.'}</p>
           <div className="title-facts">{item.mediaType === 'series' && item.totalEpisodes ? <span>{item.totalEpisodes} episodes</span> : null}{item.seasons ? <span>{item.seasons} seasons</span> : null}{item.runtime ? <span>{item.runtime} min</span> : null}{item.countries?.map((country) => <span key={country}>{country}</span>)}</div>
-          <div className="title-actions">{libraryEntry ? <label className="status-select-label"><span>Status in your library</span><select value={libraryEntry.status} onChange={(event) => void updateLibrary({ status: event.target.value })}>{statuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label> : <Button onClick={() => void updateLibrary({ status: 'planned' })}><Plus size={16} /> Add to My Watchlist</Button>}
+          <div className="title-actions">{libraryEntry ? <label className="status-select-label"><span>Status in your library</span><select value={libraryEntry.status} onChange={(event) => void updateLibrary({ status: event.target.value })}>{statuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label> : <Button onClick={() => void updateLibrary({ status: 'watching' })}><Plus size={16} /> Add to library</Button>}
             <div className="collection-picker-wrap"><Button variant="outline" aria-expanded={collectionPicker} onClick={() => setCollectionPicker((value) => !value)}><Heart size={15} /> Add to a collection</Button>{collectionPicker && <div className="collection-picker" role="group" aria-label="Choose a collection">{collections.isLoading ? <span>Loading collections…</span> : collections.data?.items.length ? collections.data.items.map((list) => <button key={list._id} onClick={() => void addToCollection(list._id)}>{list.name}<ArrowRight size={13} /></button>) : <Link to="/app/collections">Create a collection first <ArrowRight size={13} /></Link>}</div>}</div>
           </div>
           {libraryEntry && item.mediaType === 'series' && <form className="detail-progress" onSubmit={(event) => { event.preventDefault(); const target = event.currentTarget.elements.namedItem('episodes') as HTMLInputElement; void updateLibrary({ episodesWatched: Number(target.value) }); }}><label htmlFor="detail-episodes">Progress</label><input id="detail-episodes" name="episodes" type="number" min={0} max={item.totalEpisodes || 10000} defaultValue={libraryEntry.status === 'completed' && item.totalEpisodes ? item.totalEpisodes : libraryEntry.episodesWatched} disabled={libraryEntry.status === 'completed'} /><span>{item.totalEpisodes ? `of ${item.totalEpisodes} episodes` : 'episodes watched'}{libraryEntry.status === 'completed' ? ' · Complete' : ''}</span>{libraryEntry.status !== 'completed' && <Button type="submit" variant="outline">Save progress</Button>}</form>}
@@ -319,8 +319,8 @@ export function TitlePage() {
         <div className="rating-panels">
           <article className="rating-panel"><p className="eyebrow">TMDB</p>{item.tmdbRating != null ? <strong>{item.tmdbRating.toFixed(1)}<small> / 10</small></strong> : <p>No TMDB score available.</p>}<span>{item.tmdbVoteCount ? `${item.tmdbVoteCount.toLocaleString()} votes` : 'The Movie Database'}</span></article>
           <article className="rating-panel"><p className="eyebrow">AniList</p>{item.anilistAverageScore != null ? <strong>{item.anilistAverageScore}<small> / 100</small></strong> : <p>No AniList score available.</p>}<span>{[item.anilistMeanScore != null ? `Mean ${item.anilistMeanScore}/100` : '', item.anilistPopularity != null ? `${item.anilistPopularity.toLocaleString()} tracking` : ''].filter(Boolean).join(' · ') || 'Anime community score'}</span></article>
-          <article className="rating-panel"><p className="eyebrow">Showgraphy community</p>{item.communityRatingCount ? <strong>{item.communityRating?.toFixed(1)}<small> / 10</small></strong> : <p>No community ratings yet.</p>}<span>{item.communityRatingCount ? `${item.communityRatingCount.toLocaleString()} ${item.communityRatingCount === 1 ? 'rating' : 'ratings'}` : 'Your rating can start the conversation.'}</span></article>
-          <article className="rating-panel rating-panel--yours"><p className="eyebrow">Your rating</p><div className="rating-picker"><Star size={17} aria-hidden="true" /><label className="visually-hidden" htmlFor="your-rating">Choose your rating</label><select id="your-rating" value={rating} disabled={ratingSaving} onChange={(event) => void saveRating(event.target.value)} aria-describedby="rating-save-status"><option value="">Choose a score</option>{Array.from({ length: 19 }, (_, index) => (index + 2) / 2).map((value) => <option key={value} value={value}>{value.toFixed(1)} / 10</option>)}</select><ChevronDown size={15} aria-hidden="true" /></div><span className="rating-save-status" id="rating-save-status" role="status">{ratingSaving ? 'Saving rating…' : rating ? 'Saved automatically' : 'Choose a score to rate this title'}</span>{detail.data.myCommunityRating != null && <button type="button" className="text-button" disabled={ratingSaving} onClick={() => void removeRating()}>Remove your rating</button>}</article>
+          <article className="rating-panel"><p className="eyebrow">Showgraphy community</p>{item.communityRatingCount ? <strong>{item.communityRating?.toFixed(2)}<small> / 10</small></strong> : <p>No community ratings yet.</p>}<span>{item.communityRatingCount ? `${item.communityRatingCount.toLocaleString()} ${item.communityRatingCount === 1 ? 'rating' : 'ratings'}` : 'Your rating can start the conversation.'}</span></article>
+          <article className="rating-panel rating-panel--yours"><p className="eyebrow">Your rating</p><div className="rating-picker"><Star size={17} aria-hidden="true" /><label className="visually-hidden" htmlFor="your-rating">Choose a rating from 1.00 to 10.00</label><input id="your-rating" type="number" min="1" max="10" step="0.01" inputMode="decimal" placeholder="1.00–10.00" value={rating} disabled={ratingSaving} onChange={(event) => setRating(event.target.value)} onBlur={() => rating.trim() ? void saveRating(rating, true) : setRating(detail.data.myCommunityRating?.toFixed(2) ?? '')} aria-describedby="rating-save-status" /></div><span className="rating-save-status" id="rating-save-status" role="status">{ratingSaving ? 'Saving rating…' : rating ? 'Saved automatically, to two decimal places' : 'Choose a score from 1.00 to 10.00'}</span>{detail.data.myCommunityRating != null && <button type="button" className="text-button" disabled={ratingSaving} onClick={() => void removeRating()}>Remove your rating</button>}</article>
         </div>
       </section>
       <section className="title-reviews" aria-labelledby="reviews-heading">

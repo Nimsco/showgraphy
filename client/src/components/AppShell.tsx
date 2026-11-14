@@ -41,7 +41,7 @@ export function AppShell() {
     return () => window.removeEventListener('keydown', keydown);
   }, []);
 
-  return <div className={`app-frame ${rail ? 'app-frame--rail' : ''} ${drawer ? 'app-frame--drawer' : ''}`}>
+  return <div className={`app-frame ${rail ? 'app-frame--rail' : ''} ${drawer ? 'app-frame--drawer' : ''}${location.pathname === '/app/chat' ? ' app-frame--chat' : ''}`}>
     {drawer && <button className="drawer-scrim" aria-label="Close navigation" onClick={() => setDrawer(false)} />}
     <aside className="app-sidebar" id="primary-navigation" aria-label="Primary navigation">
       <div className="sidebar-brand"><NavLink to="/app" aria-label="Showgraphy journal"><Logo compact={rail} /></NavLink><button className="sidebar-close" aria-label="Close navigation" onClick={() => setDrawer(false)}><X size={18} /></button></div>

@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { Flag, MessageCircle, Send, Trash2, UserRound, Wifi, WifiOff, X } from 'lucide-react';
-import { Button, LoadingLine, PageHeading } from '../components/ui';
+import { Button, LoadingLine } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest, getAccessToken, refreshAccessTokenStatus } from '../lib/api';
 import type { ChatAck, ChatClientToServerEvents, ChatMessage, ChatPage, ChatServerToClientEvents, ChatTypingEvent } from '../types/chat';
@@ -358,12 +358,11 @@ export function GlobalChatPage() {
   });
 
   return <div className="page-wrap chat-page">
-    <PageHeading eyebrow="One room for everyone" title="Global Chat" description="Talk about what you’re watching with the Showgraphy community." />
     {(error || notice || reportNotice) && <p className={error ? 'form-alert' : 'success-banner'} role={error ? 'alert' : 'status'}>{error || reportNotice || notice}<button type="button" aria-label="Dismiss message" onClick={() => { setError(''); setNotice(''); setReportNotice(''); }}><X size={15} /></button></p>}
     <section className="chat-shell" aria-label="Global Chat">
       <header className="chat-header">
-        <div className="chat-header__title"><span className="chat-header__icon"><MessageCircle size={18} /></span><div><h2>Global Chat</h2><p>Shared room · {onlineCount} {onlineCount === 1 ? 'person' : 'people'} online</p></div></div>
-        <span className={`chat-connection chat-connection--${connection}`} role="status"><i aria-hidden="true" />{connection === 'connected' ? <Wifi size={14} /> : connection === 'reconnecting' || connection === 'session-expired' ? <WifiOff size={14} /> : <span className="loading-dot" />}{connectionLabel(connection)}</span>
+        <span className="chat-online"><i aria-hidden="true" />{onlineCount} online</span>
+        <span className={`chat-connection chat-connection--${connection}`} role="status" aria-live="polite">{connection === 'connected' ? <Wifi size={13} /> : connection === 'reconnecting' || connection === 'session-expired' ? <WifiOff size={13} /> : <span className="loading-dot" />}{connectionLabel(connection)}</span>
       </header>
       <div className="chat-messages" ref={scrollRef} onScroll={onMessageScroll} role="log" aria-label="Chat messages" aria-live="polite" aria-relevant="additions text">
         {(loadingOlder || hasOlder) && <div className="chat-history-control">{loadingOlder ? <span>Loading older messages…</span> : <button type="button" onClick={() => void loadOlderMessages()}>Load older messages</button>}</div>}
@@ -383,7 +382,7 @@ export function GlobalChatPage() {
       </div>
       <form className="chat-composer" onSubmit={sendMessage}>
         <label className="visually-hidden" htmlFor="global-chat-message">Write a message</label>
-        <textarea id="global-chat-message" value={draft} onChange={(event) => updateDraft(event.target.value.slice(0, MESSAGE_LIMIT))} onKeyDown={onComposerKeyDown} maxLength={MESSAGE_LIMIT} rows={2} placeholder={connection === 'connected' ? 'Write a message…' : 'You can keep drafting while reconnecting…'} aria-describedby="chat-composer-hint" />
+        <textarea id="global-chat-message" value={draft} onChange={(event) => updateDraft(event.target.value.slice(0, MESSAGE_LIMIT))} onKeyDown={onComposerKeyDown} maxLength={MESSAGE_LIMIT} rows={1} placeholder={connection === 'connected' ? 'Message Global Chat…' : 'Draft while reconnecting…'} aria-describedby="chat-composer-hint" />
         <div className="chat-composer__footer"><span id="chat-composer-hint">Enter to send · Shift + Enter for a new line · {draft.length}/{MESSAGE_LIMIT}</span><Button type="submit" disabled={!draft.trim() || draft.trim().length > MESSAGE_LIMIT || sending || connection !== 'connected'}><Send size={15} />{sending ? 'Sending…' : 'Send'}</Button></div>
       </form>
     </section>

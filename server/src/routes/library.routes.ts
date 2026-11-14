@@ -10,7 +10,7 @@ export const libraryRouter = Router();
 libraryRouter.use(authenticate);
 
 const statusSchema = z.enum(['completed', 'watching', 'planned', 'on-hold', 'dropped']);
-const personalRatingSchema = z.number().min(1).max(10).refine((value) => Number.isInteger(value * 2), 'Use whole or half-point ratings.');
+const personalRatingSchema = z.number().min(1).max(10).refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8, 'Use at most two decimal places.');
 const entryFields = z.object({
   status: statusSchema.optional(),
   episodesWatched: z.number().int().min(0).max(10000).optional(),
