@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, Film, Heart, MessageSquareText, Pencil, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, Film, Heart, MessageSquareText, Pencil, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Button, EmptyState, FieldError, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
@@ -22,7 +22,16 @@ function titlePath(title: MediaTitle) { return `/app/title/${title._id}`; }
 
 function PageControls({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (page: number) => void }) {
   if (totalPages <= 1) return null;
-  return <nav className="page-controls" aria-label="Search result pages"><Button variant="outline" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</Button><span>Page {page} of {totalPages}</span><Button variant="outline" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>Next</Button></nav>;
+  const firstVisible = Math.max(1, Math.min(page - 2, totalPages - 4));
+  const lastVisible = Math.min(totalPages, firstVisible + 4);
+  const pages = Array.from({ length: lastVisible - firstVisible + 1 }, (_, index) => firstVisible + index);
+  return <nav className="page-controls" aria-label="Search result pages">
+    <Button className="page-step" variant="outline" aria-label="Go to previous page" disabled={page <= 1} onClick={() => onChange(page - 1)}><ArrowLeft size={14} /><span>Previous</span></Button>
+    {firstVisible > 1 && <><button type="button" className="page-number" aria-label="Go to page 1" onClick={() => onChange(1)}>1</button>{firstVisible > 2 && <span className="page-ellipsis" aria-hidden="true">…</span>}</>}
+    {pages.map((number) => <button type="button" key={number} className={`page-number${number === page ? ' is-current' : ''}`} aria-label={`Page ${number}`} aria-current={number === page ? 'page' : undefined} onClick={() => onChange(number)}>{number}</button>)}
+    {lastVisible < totalPages && <>{lastVisible < totalPages - 1 && <span className="page-ellipsis" aria-hidden="true">…</span>}<button type="button" className="page-number" aria-label={`Go to page ${totalPages}`} onClick={() => onChange(totalPages)}>{totalPages}</button></>}
+    <Button className="page-step" variant="outline" aria-label="Go to next page" disabled={page >= totalPages} onClick={() => onChange(page + 1)}><span>Next</span><ArrowRight size={14} /></Button>
+  </nav>;
 }
 
 const manualSchema = z.object({
@@ -198,6 +207,7 @@ export function TitlePage() {
   const detail = useQuery({ queryKey: ['title', id], queryFn: () => apiRequest<DetailResult>(`/catalog/${id}`) });
   const reviews = useQuery({ queryKey: ['title-reviews', id], queryFn: () => apiRequest<{ items: TitleReview[] }>(`/titles/${id}/reviews`) });
   const [rating, setRating] = useState('');
+  const [ratingSaving, setRatingSaving] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [reviewBody, setReviewBody] = useState('');
@@ -224,15 +234,20 @@ export function TitlePage() {
       setNotice(libraryEntry ? 'Your library entry was updated.' : 'Added to your watchlist.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'The library could not be updated.'); }
   }
-  async function saveRating(event: FormEvent) {
-    event.preventDefault();
-    if (!rating) return;
+  async function saveRating(nextRating: string) {
+    if (!nextRating || ratingSaving || nextRating === rating) return;
+    const previousRating = rating;
+    setRating(nextRating);
+    setRatingSaving(true);
     try {
       setError('');
-      await apiRequest(`/titles/${item._id}/rating`, { method: 'PUT', body: JSON.stringify({ rating: Number(rating) }) });
+      await apiRequest(`/titles/${item._id}/rating`, { method: 'PUT', body: JSON.stringify({ rating: Number(nextRating) }) });
       await queryClient.invalidateQueries({ queryKey: ['title', id] });
       setNotice('Your rating was saved and included in the community rating.');
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'The rating could not be saved.'); }
+    } catch (cause) {
+      setRating(previousRating);
+      setError(cause instanceof Error ? cause.message : 'The rating could not be saved.');
+    } finally { setRatingSaving(false); }
   }
   async function removeRating() {
     try {
@@ -305,7 +320,7 @@ export function TitlePage() {
           <article className="rating-panel"><p className="eyebrow">TMDB</p>{item.tmdbRating != null ? <strong>{item.tmdbRating.toFixed(1)}<small> / 10</small></strong> : <p>No TMDB score available.</p>}<span>{item.tmdbVoteCount ? `${item.tmdbVoteCount.toLocaleString()} votes` : 'The Movie Database'}</span></article>
           <article className="rating-panel"><p className="eyebrow">AniList</p>{item.anilistAverageScore != null ? <strong>{item.anilistAverageScore}<small> / 100</small></strong> : <p>No AniList score available.</p>}<span>{[item.anilistMeanScore != null ? `Mean ${item.anilistMeanScore}/100` : '', item.anilistPopularity != null ? `${item.anilistPopularity.toLocaleString()} tracking` : ''].filter(Boolean).join(' · ') || 'Anime community score'}</span></article>
           <article className="rating-panel"><p className="eyebrow">Showgraphy community</p>{item.communityRatingCount ? <strong>{item.communityRating?.toFixed(1)}<small> / 10</small></strong> : <p>No community ratings yet.</p>}<span>{item.communityRatingCount ? `${item.communityRatingCount.toLocaleString()} ${item.communityRatingCount === 1 ? 'rating' : 'ratings'}` : 'Your rating can start the conversation.'}</span></article>
-          <article className="rating-panel rating-panel--yours"><p className="eyebrow">Your rating</p><form onSubmit={saveRating}><label className="visually-hidden" htmlFor="your-rating">Choose your rating</label><select id="your-rating" value={rating} onChange={(event) => setRating(event.target.value)}><option value="">Choose a score</option>{Array.from({ length: 19 }, (_, index) => (index + 2) / 2).map((value) => <option key={value} value={value}>{value.toFixed(1)} / 10</option>)}</select><Button type="submit" variant="outline" disabled={!rating}><Star size={14} /> Save rating</Button>{detail.data.myCommunityRating != null && <button type="button" className="text-button" onClick={removeRating}>Remove your rating</button>}</form></article>
+          <article className="rating-panel rating-panel--yours"><p className="eyebrow">Your rating</p><div className="rating-picker"><Star size={17} aria-hidden="true" /><label className="visually-hidden" htmlFor="your-rating">Choose your rating</label><select id="your-rating" value={rating} disabled={ratingSaving} onChange={(event) => void saveRating(event.target.value)} aria-describedby="rating-save-status"><option value="">Choose a score</option>{Array.from({ length: 19 }, (_, index) => (index + 2) / 2).map((value) => <option key={value} value={value}>{value.toFixed(1)} / 10</option>)}</select><ChevronDown size={15} aria-hidden="true" /></div><span className="rating-save-status" id="rating-save-status" role="status">{ratingSaving ? 'Saving rating…' : rating ? 'Saved automatically' : 'Choose a score to rate this title'}</span>{detail.data.myCommunityRating != null && <button type="button" className="text-button" disabled={ratingSaving} onClick={() => void removeRating()}>Remove your rating</button>}</article>
         </div>
       </section>
       <section className="title-reviews" aria-labelledby="reviews-heading">
