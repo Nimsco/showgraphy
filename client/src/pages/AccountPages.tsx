@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, BarChart3, CalendarDays, Check, Eye, LockKeyhole, Mail, Monitor, Share2, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, CalendarDays, Check, Copy, Eye, LockKeyhole, Mail, Monitor, Share2, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button, EmptyState, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
@@ -316,14 +316,40 @@ export function SettingsPage() {
 export function ProfilePage() {
   const { username = '' } = useParams();
   const { user } = useAuth();
+  const [copyNotice, setCopyNotice] = useState('');
   const ownProfile = user?.username.toLowerCase() === username.toLowerCase();
   const query = useQuery({ queryKey: ['profile', username], queryFn: () => apiRequest<ProfileResult>(`/users/profiles/${encodeURIComponent(username)}`), retry: false });
+  async function copyProfileLink() {
+    try {
+      const profileLink = new URL(`/u/${encodeURIComponent(username)}`, window.location.origin).toString();
+      let copied = false;
+      if (navigator.clipboard?.writeText) {
+        try { await navigator.clipboard.writeText(profileLink); copied = true; } catch { /* Fall back for browsers that block clipboard access. */ }
+      }
+      if (!copied) {
+        const field = document.createElement('textarea');
+        field.value = profileLink;
+        field.setAttribute('readonly', '');
+        field.style.position = 'fixed';
+        field.style.opacity = '0';
+        document.body.appendChild(field);
+        field.select();
+        try { copied = document.execCommand('copy'); }
+        finally { field.remove(); }
+      }
+      if (!copied) throw new Error('The profile link could not be copied.');
+      setCopyNotice('Profile link copied.');
+      window.setTimeout(() => setCopyNotice(''), 2400);
+    } catch (cause) {
+      setCopyNotice(cause instanceof Error ? cause.message : 'The profile link could not be copied.');
+    }
+  }
   if (query.isLoading) return <div className="page-wrap"><LoadingLine label="Opening profile" /></div>;
   if (query.error || !query.data) return <main className="page-wrap"><EmptyState title="This profile is private or unavailable" description={query.error instanceof Error ? query.error.message : 'Check the profile link, or ask the viewer to make it public.'} action={<Link className="button button--outline" to="/">Go to Showgraphy</Link>} /></main>;
   const { profile, stats, favorites, lists, recent, ratings } = query.data;
 
   return <main className="profile-page">
-    <div className="profile-topbar"><Link to={ownProfile ? '/app' : '/'} className="inline-arrow"><ArrowLeft size={15} /> {ownProfile ? 'Back to your journal' : 'Showgraphy'}</Link>{ownProfile && <Link className="button button--outline" to="/app/settings">Edit profile</Link>}</div>
+    <div className="profile-topbar"><Link to={ownProfile ? '/app' : '/'} className="inline-arrow"><ArrowLeft size={15} /> {ownProfile ? 'Back to your journal' : 'Showgraphy'}</Link>{ownProfile && <div className="profile-topbar__actions">{user?.profileVisibility === 'public' && <><Button type="button" variant="outline" onClick={() => void copyProfileLink()}><Copy size={15} /> Copy profile link</Button>{copyNotice && <span className="profile-copy-status" role="status">{copyNotice}</span>}</>}<Link className="button button--outline" to="/app/settings">Edit profile</Link></div>}</div>
     <header className="profile-masthead"><div className="profile-avatar">{profile.avatar ? <img src={profile.avatar} alt="" /> : <UserRound size={29} strokeWidth={1.3} />}</div><div><p className="eyebrow">A personal watchline</p><h1>@{profile.username}</h1><p className="profile-handle">Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</p>{profile.bio && <p className="profile-bio">{profile.bio}</p>}</div></header>
     {stats && <section className="profile-stats"><div><strong>{stats.completed}</strong><span>completed</span></div><div><strong>{stats.movies}</strong><span>films</span></div><div><strong>{stats.series}</strong><span>series</span></div><div><strong>{stats.total}</strong><span>titles in library</span></div></section>}
     {stats && <section className="profile-category-stats" aria-label="Titles by category"><div><p className="eyebrow">Across the library</p><h2>By type</h2><p>Counts include titles at every watch status.</p></div><ul>{insightCategories.map((category) => <li key={category.key}><span>{category.label}</span><strong>{stats.byCategory.find((item) => item.category === category.key)?.count ?? 0}</strong></li>)}</ul></section>}

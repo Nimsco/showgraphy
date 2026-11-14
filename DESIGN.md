@@ -47,6 +47,6 @@ Use real account data. Never ship sample counts, ratings, activity, or reviews a
 
 ## Appearance themes
 
-Keep Midnight Orchid as the default. The Clear Light palette uses neutral white and gray surfaces with a deep orchid accent. Other dark palettes share opaque graphite surfaces; only controls and selected states carry their sea, moss, rose, or amber accent. This keeps content crisp and avoids a color wash over every panel. Text and primary-action pairs are selected to exceed WCAG AA's 4.5:1 contrast target for normal text.
+Keep Midnight Orchid as the default. The Clear Light palette uses neutral white and gray surfaces with a deep orchid accent. Other dark palettes use distinct, opaque blue-green, green, plum, and warm-brown surface undertones, with brighter hues reserved for controls and selected states. Keep clear separation between the canvas, panels, and raised surfaces; avoid gradients, glow, and glass effects. Text and primary-action pairs are selected to exceed WCAG AA's 4.5:1 contrast target for normal text.
 
 Sources: [Paper & Ink](https://www.designlounge.live/themes/paper-ink) for a readable paper ground, [Night Desk](https://www.designlounge.live/themes/night-desk) for restrained dark surfaces, and [WCAG 2.2 contrast minimum](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum).
