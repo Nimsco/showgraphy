@@ -12,7 +12,7 @@ export function route(handler: RequestHandler): RequestHandler {
   return (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 }
 
-export const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
+export const errorHandler: ErrorRequestHandler = (error: unknown, request, response, _next) => {
   if (error instanceof ZodError) {
     response.status(400).json({ message: error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ') });
     return;
@@ -25,7 +25,12 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, _request, resp
     response.status(409).json({ message: 'That value is already in use.' });
     return;
   }
-  console.error(error);
+  console.error('[API request failed]', {
+    endpoint: request.originalUrl.split('?')[0],
+    method: request.method,
+    status: 500,
+    reason: error instanceof Error ? error.name : 'unknown server error',
+  });
   response.status(500).json({ message: 'Something went wrong. Please try again.' });
 };
 

@@ -13,6 +13,9 @@ import { usersRouter } from './routes/user.routes.js';
 import { errorHandler } from './utils/http.js';
 
 export const app = express();
+// Render sits behind one trusted edge proxy; use the originating client IP
+// instead of counting every visitor against the proxy's shared address.
+app.set('trust proxy', 1);
 const allowedOrigins = new Set([...env.CORS_ORIGINS.split(',').map((origin) => origin.trim()), env.FRONTEND_URL, env.CLIENT_URL].map((value) => {
   try { return new URL(value).origin; } catch { return value.replace(/\/$/, ''); }
 }).filter(Boolean));
@@ -47,7 +50,26 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
-app.use('/api', rateLimit({ windowMs: env.RATE_LIMIT_WINDOW_MS, limit: env.RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false }));
+app.use('/api/auth', (request, response, next) => {
+  response.on('finish', () => {
+    if (response.statusCode < 400) return;
+    const status = response.statusCode;
+    const reason = status === 401 ? 'authentication rejected' : status === 403 ? 'request forbidden or CSRF check failed' : status === 404 ? 'endpoint or resource not found' : status === 429 ? 'rate limit exceeded' : status >= 500 ? 'backend failure' : 'request rejected';
+    console.warn('[Auth request failed]', { endpoint: request.path, method: request.method, status, reason });
+  });
+  next();
+});
+app.use('/api', rateLimit({
+  windowMs: env.RATE_LIMIT_WINDOW_MS,
+  limit: Math.max(env.RATE_LIMIT_MAX, 1000),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: (request) => ['/api/health', '/api/auth/config', '/api/auth/csrf', '/api/auth/refresh'].includes(request.originalUrl.split('?')[0] ?? ''),
+  handler: (request, response) => {
+    console.warn('[API request rejected]', { endpoint: request.originalUrl.split('?')[0], method: request.method, status: 429, reason: 'rate limit exceeded' });
+    response.status(429).json({ message: 'Too many requests. Try again shortly.' });
+  },
+}));
 app.use('/api', csrfProtection);
 
 app.get('/health', (_request, response) => response.status(200).type('text/plain').send(`${env.APP_NAME} API is healthy and running.`));

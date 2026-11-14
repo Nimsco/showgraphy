@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Eye, EyeOff } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { apiRequest, getApiBase } from '../lib/api';
+import { apiRequest, ApiError, getApiBase } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo, Button, FieldError } from '../components/ui';
 
@@ -19,6 +19,16 @@ const registerSchema = z.object({
 
 type LoginValues = z.infer<typeof loginSchema>;
 type RegisterValues = z.infer<typeof registerSchema>;
+
+export function googleConfigErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) return 'Could not connect to the API. It may be starting up; try again in a moment.';
+  if (error.status === 404) return 'The API does not have the Google configuration endpoint (HTTP 404). Confirm the backend deployment is current.';
+  if (error.status === 401 || error.status === 403) return `The API denied the Google configuration check (HTTP ${error.status}). Check proxy and CSRF settings.`;
+  if (error.status === 429) return 'The API rate limit blocked the Google configuration check (HTTP 429). Try again shortly.';
+  if (error.status === 502 || error.status === 503 || error.status === 504) return `The backend returned HTTP ${error.status}; it may be waking or timing out. Try again shortly.`;
+  if (error.status >= 500) return `The backend failed the Google configuration check (HTTP ${error.status}).`;
+  return `The Google configuration check returned HTTP ${error.status}.`;
+}
 
 export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const isRegister = mode === 'register';
@@ -34,14 +44,15 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const [verifyingCode, setVerifyingCode] = useState(false);
   const google = useQuery({
     queryKey: ['auth-config'],
-    queryFn: () => apiRequest<{ googleEnabled: boolean }>('/auth/config'),
-    retry: 2,
+    queryFn: () => apiRequest<{ googleEnabled: boolean; googleCallbackProxyConfigured: boolean }>('/auth/config'),
+    retry: (failureCount, error) => failureCount < 4 && (!(error instanceof ApiError) || error.status === 429 || error.status >= 500),
     retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 8_000),
     staleTime: 60_000,
   });
   const loginForm = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
   const registerForm = useForm<RegisterValues>({ resolver: zodResolver(registerSchema) });
   const submitting = isRegister ? registerForm.formState.isSubmitting : loginForm.formState.isSubmitting;
+  const googleReady = Boolean(google.data?.googleEnabled && google.data.googleCallbackProxyConfigured);
 
   if (user) return <Navigate to="/app" replace />;
 
@@ -100,8 +111,9 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
           <Button type="submit" disabled={submitting} className="auth-submit">{submitting ? 'Opening your archive…' : 'Sign in'} <ArrowRight size={16} /></Button>
         </form>}
         <div className="auth-divider"><span>or</span></div>
-        <a className={`google-button${!google.data?.googleEnabled ? ' is-disabled' : ''}`} href={google.data?.googleEnabled ? `${getApiBase()}/auth/google` : undefined} aria-disabled={!google.data?.googleEnabled} aria-busy={google.isPending} onClick={(event) => { if (!google.data?.googleEnabled) { event.preventDefault(); if (google.isError) void google.refetch(); } }}><span className="google-g">G</span>{google.data?.googleEnabled ? 'Continue with Google' : google.isPending ? 'Checking Google sign-in…' : google.isError ? 'Retry Google sign-in check' : 'Google sign-in is not configured'}{google.data?.googleEnabled && <Check size={14} className="google-check" />}</a>
-        {google.isError && <p className="quiet-line" role="status">Could not reach the backend to check Google sign-in. Select the button to try again.</p>}
+        <a className={`google-button${!googleReady ? ' is-disabled' : ''}`} href={googleReady ? `${getApiBase()}/auth/google` : undefined} aria-disabled={!googleReady} aria-busy={google.isPending} onClick={(event) => { if (!googleReady) { event.preventDefault(); if (google.isError) void google.refetch(); } }}><span className="google-g">G</span>{googleReady ? 'Continue with Google' : google.isPending ? 'Checking Google sign-in…' : google.isError ? 'Retry Google sign-in check' : google.data?.googleEnabled && !google.data.googleCallbackProxyConfigured ? 'Google callback is misconfigured' : 'Google sign-in is not configured'}{googleReady && <Check size={14} className="google-check" />}</a>
+        {google.data?.googleEnabled && !google.data.googleCallbackProxyConfigured && <p className="quiet-line" role="status">Set the Google callback URL to this site’s `/api/auth/google/callback` proxy route, and register that exact URL in Google Cloud.</p>}
+        {google.isError && <p className="quiet-line" role="status">{googleConfigErrorMessage(google.error)} Select the button to retry.</p>}
         <p className="auth-switch">{isRegister ? 'Already have a journal?' : 'New to Showgraphy?'} <Link to={isRegister ? '/login' : '/register'}>{isRegister ? 'Sign in' : 'Create an account'}</Link></p>
         <p className="auth-terms">By continuing, you agree to keep your account details accurate and respect the privacy choices of other viewers.</p>
       </section>

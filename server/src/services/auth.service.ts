@@ -66,7 +66,6 @@ function refreshCookieOptions() {
     sameSite: env.COOKIE_SAME_SITE,
     path: '/api/auth',
     maxAge: durationMs(env.JWT_REFRESH_EXPIRES_IN),
-    ...(env.COOKIE_DOMAIN ? { domain: env.COOKIE_DOMAIN } : {}),
   } as const;
 }
 
@@ -125,7 +124,6 @@ export function clearRefreshCookie(response: Response): void {
     secure: env.COOKIE_SECURE,
     sameSite: env.COOKIE_SAME_SITE,
     path: '/api/auth',
-    ...(env.COOKIE_DOMAIN ? { domain: env.COOKIE_DOMAIN } : {}),
   });
 }
 

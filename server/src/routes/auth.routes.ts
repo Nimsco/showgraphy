@@ -14,6 +14,7 @@ import { HttpError, route } from '../utils/http.js';
 
 export const authRouter = Router();
 const recoveryLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { message: 'Please wait before requesting another account link.' } });
+const loginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false, message: { message: 'Too many sign-in attempts. Try again shortly.' } });
 const registrationLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { message: 'Please wait before requesting another registration code.' } });
 const registrationVerifyLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, message: { message: 'Too many verification attempts. Try again shortly.' } });
 
@@ -41,6 +42,14 @@ function googleClient(): OAuth2Client | null {
   return new OAuth2Client(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.GOOGLE_CALLBACK_URL);
 }
 
+function googleCallbackUsesFrontendProxy(): boolean {
+  try {
+    const callback = new URL(env.GOOGLE_CALLBACK_URL);
+    const frontend = new URL(env.FRONTEND_URL);
+    return callback.origin === frontend.origin && callback.pathname === '/api/auth/google/callback';
+  } catch { return false; }
+}
+
 authRouter.get('/csrf', (_request, response) => {
   const token = issueCsrfToken();
   setCsrfCookie(token, response);
@@ -48,7 +57,7 @@ authRouter.get('/csrf', (_request, response) => {
 });
 
 authRouter.get('/config', (_request, response) => {
-  response.json({ googleEnabled: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET), emailEnabled: isEmailDeliveryConfigured() });
+  response.json({ googleEnabled: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET), googleCallbackProxyConfigured: googleCallbackUsesFrontendProxy(), emailEnabled: isEmailDeliveryConfigured() });
 });
 
 authRouter.post('/register', registrationLimiter, csrfProtection, route(async (request, response) => {
@@ -92,7 +101,7 @@ authRouter.post('/register/verify', registrationVerifyLimiter, csrfProtection, r
   response.status(201).json(await issueSession(user, request, response));
 }));
 
-authRouter.post('/login', csrfProtection, route(async (request, response) => {
+authRouter.post('/login', loginLimiter, csrfProtection, route(async (request, response) => {
   const input = loginSchema.parse(request.body);
   const user = await User.findOne({ $or: [{ email: input.identifier.toLowerCase() }, { username: input.identifier.toLowerCase() }] }).select('+passwordHash');
   if (!user || !user.passwordHash || !(await verifyPassword(user.passwordHash, input.password)) || user.accountStatus !== 'active') {
@@ -192,6 +201,7 @@ authRouter.delete('/sessions/:id', authenticate, route(async (request, response)
 authRouter.get('/google', route(async (request, response) => {
   const client = googleClient();
   if (!client) throw new HttpError(503, 'Google sign-in is not configured.');
+  if (!googleCallbackUsesFrontendProxy()) throw new HttpError(503, 'Set GOOGLE_CALLBACK_URL to FRONTEND_URL/api/auth/google/callback and register that exact URL in Google Cloud.');
   const browserOrigin = new URL(frontendOrigin(request));
   const callbackOrigin = new URL(env.GOOGLE_CALLBACK_URL);
   if (env.NODE_ENV === 'development' && !isLoopback(browserOrigin.hostname) && isLoopback(callbackOrigin.hostname)) {
