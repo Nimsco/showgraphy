@@ -9,6 +9,7 @@ import { HttpError } from '../utils/http.js';
 type SafeUser = {
   id: string;
   username: string;
+  usernameSetupRequired: boolean;
   email: string;
   emailVerified: boolean;
   avatar: string;
@@ -32,10 +33,11 @@ function durationMs(value: string): number {
   return amount * units[match[2] as keyof typeof units];
 }
 
-export function safeUser(user: { _id: unknown; username: string; email: string; emailVerified?: boolean; avatar?: string; bio?: string; profileVisibility?: 'public' | 'private'; privacySettings?: SafeUser['privacySettings']; themePreference?: SafeUser['themePreference']; favoriteTitleIds?: unknown[]; createdAt: Date }): SafeUser {
+export function safeUser(user: { _id: unknown; username: string; usernameSetupRequired?: boolean; email: string; emailVerified?: boolean; avatar?: string; bio?: string; profileVisibility?: 'public' | 'private'; privacySettings?: SafeUser['privacySettings']; themePreference?: SafeUser['themePreference']; favoriteTitleIds?: unknown[]; createdAt: Date }): SafeUser {
   return {
     id: String(user._id),
     username: user.username,
+    usernameSetupRequired: user.usernameSetupRequired ?? false,
     email: user.email,
     emailVerified: user.emailVerified ?? false,
     avatar: user.avatar ?? '',

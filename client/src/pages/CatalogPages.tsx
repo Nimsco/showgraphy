@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, Film, Heart, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Film, Heart, MessageSquareText, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Button, EmptyState, FieldError, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
@@ -124,8 +124,10 @@ export function DiscoverPage() {
 }
 
 function LibraryEntryCard({ entry, onChange, onRemove }: { entry: LibraryEntry; onChange: (entryId: string, body: Record<string, unknown>) => Promise<void>; onRemove: (entry: LibraryEntry) => Promise<void> }) {
-  const [episodes, setEpisodes] = useState(entry.episodesWatched);
+  const completedEpisodes = entry.status === 'completed' && entry.titleId.mediaType === 'series' && entry.titleId.totalEpisodes ? entry.titleId.totalEpisodes : entry.episodesWatched;
+  const [episodes, setEpisodes] = useState(completedEpisodes);
   const [message, setMessage] = useState('');
+  useEffect(() => setEpisodes(completedEpisodes), [completedEpisodes]);
   async function saveProgress(event: FormEvent) {
     event.preventDefault();
     await onChange(entry._id, { episodesWatched: Number(episodes) });
@@ -135,7 +137,7 @@ function LibraryEntryCard({ entry, onChange, onRemove }: { entry: LibraryEntry; 
   return <article className="library-entry">
     <Link to={titlePath(entry.titleId)} className="library-entry__poster"><Poster title={entry.titleId} /></Link>
     <div className="library-entry__main"><div className="library-entry__heading"><div><p className="eyebrow">{entry.titleId.releaseDate?.slice(0, 4) || (entry.titleId.mediaType === 'movie' ? 'Movie' : 'Series')} · {entry.titleId.mediaType === 'movie' ? 'Film' : 'Series'}</p><h2><Link to={titlePath(entry.titleId)}>{entry.titleId.title}</Link></h2><p className="media-card__meta">{entry.titleId.categories?.map((item) => item.replaceAll('-', ' ')).join(' · ')}</p></div><label className="status-select-label"><span className="visually-hidden">Status for {entry.titleId.title}</span><select value={entry.status} onChange={(event) => void onChange(entry._id, { status: event.target.value })}>{statuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label><Button type="button" variant="outline" className="library-remove" onClick={() => void onRemove(entry)} aria-label={`Remove ${entry.titleId.title} from your library`}><Trash2 size={14} /><span>Remove</span></Button></div>
-      {entry.titleId.mediaType === 'series' && <form className="progress-edit" onSubmit={saveProgress}><label>Episodes watched <input type="number" min={0} max={entry.titleId.totalEpisodes || 10000} value={episodes} onChange={(event) => setEpisodes(Number(event.target.value))} /></label>{entry.titleId.totalEpisodes ? <span>of {entry.titleId.totalEpisodes}</span> : null}<Button type="submit" variant="outline"><Check size={14} /> Save progress</Button><span role="status">{message}</span></form>}
+      {entry.titleId.mediaType === 'series' && <form className="progress-edit" onSubmit={saveProgress}><label>Episodes watched <input type="number" min={0} max={entry.titleId.totalEpisodes || 10000} value={episodes} disabled={entry.status === 'completed'} onChange={(event) => setEpisodes(Number(event.target.value))} /></label>{entry.titleId.totalEpisodes ? <span>of {entry.titleId.totalEpisodes}</span> : null}{entry.status === 'completed' ? <span>Complete</span> : <Button type="submit" variant="outline"><Check size={14} /> Save progress</Button>}<span role="status">{message}</span></form>}
       {entry.notes && <p className="library-note">{entry.notes}</p>}
     </div>
   </article>;
@@ -158,6 +160,7 @@ export function LibraryPage() {
     catch (error) { setChangeError(error instanceof Error ? error.message : 'The entry could not be updated.'); }
   }
   async function removeEntry(entry: LibraryEntry) {
+    if (!window.confirm(`Do you want to remove ${entry.titleId.title} from your library?`)) return;
     try {
       setChangeError('');
       await apiRequest(`/library/${entry._id}`, { method: 'DELETE' });
@@ -185,14 +188,17 @@ export function LibraryPage() {
 }
 
 type DetailResult = { item: MediaTitle; myCommunityRating: number | null; libraryEntry: Omit<LibraryEntry, '_id' | 'titleId' | 'userId' | 'createdAt' | 'updatedAt'> & { _id?: string } | null };
+type TitleReview = { _id: string; body: string; createdAt: string; userId: { _id: string; username: string; avatar: string } };
 
 export function TitlePage() {
   const { id = '' } = useParams();
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ['title', id], queryFn: () => apiRequest<DetailResult>(`/catalog/${id}`) });
+  const reviews = useQuery({ queryKey: ['title-reviews', id], queryFn: () => apiRequest<{ items: TitleReview[] }>(`/titles/${id}/reviews`) });
   const [rating, setRating] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [reviewBody, setReviewBody] = useState('');
   const [collectionPicker, setCollectionPicker] = useState(false);
   const collections = useQuery({ queryKey: ['lists'], queryFn: () => apiRequest<{ items: UserList[] }>('/lists'), enabled: collectionPicker });
   useEffect(() => { if (detail.data?.myCommunityRating) setRating(String(detail.data.myCommunityRating)); }, [detail.data?.myCommunityRating]);
@@ -231,6 +237,16 @@ export function TitlePage() {
       setNotice('Your rating was removed.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'The rating could not be removed.'); }
   }
+  async function submitReview(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setError('');
+      await apiRequest(`/titles/${item._id}/reviews`, { method: 'POST', body: JSON.stringify({ body: reviewBody }) });
+      setReviewBody('');
+      await queryClient.invalidateQueries({ queryKey: ['title-reviews', id] });
+      setNotice('Your review was published.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your review could not be published.'); }
+  }
   async function addToCollection(listId: string) {
     try {
       await apiRequest(`/lists/${listId}/items`, { method: 'POST', body: JSON.stringify({ titleId: item._id }) });
@@ -254,7 +270,7 @@ export function TitlePage() {
           <div className="title-actions">{libraryEntry ? <label className="status-select-label"><span>Status in your library</span><select value={libraryEntry.status} onChange={(event) => void updateLibrary({ status: event.target.value })}>{statuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label> : <Button onClick={() => void updateLibrary({ status: 'planned' })}><Plus size={16} /> Add to My Watchlist</Button>}
             <div className="collection-picker-wrap"><Button variant="outline" aria-expanded={collectionPicker} onClick={() => setCollectionPicker((value) => !value)}><Heart size={15} /> Add to a collection</Button>{collectionPicker && <div className="collection-picker" role="group" aria-label="Choose a collection">{collections.isLoading ? <span>Loading collections…</span> : collections.data?.items.length ? collections.data.items.map((list) => <button key={list._id} onClick={() => void addToCollection(list._id)}>{list.name}<ArrowRight size={13} /></button>) : <Link to="/app/collections">Create a collection first <ArrowRight size={13} /></Link>}</div>}</div>
           </div>
-          {libraryEntry && item.mediaType === 'series' && <form className="detail-progress" onSubmit={(event) => { event.preventDefault(); const target = event.currentTarget.elements.namedItem('episodes') as HTMLInputElement; void updateLibrary({ episodesWatched: Number(target.value) }); }}><label htmlFor="detail-episodes">Progress</label><input id="detail-episodes" name="episodes" type="number" min={0} max={item.totalEpisodes || 10000} defaultValue={libraryEntry.episodesWatched} /><span>{item.totalEpisodes ? `of ${item.totalEpisodes} episodes` : 'episodes watched'}</span><Button type="submit" variant="outline">Save progress</Button></form>}
+          {libraryEntry && item.mediaType === 'series' && <form className="detail-progress" onSubmit={(event) => { event.preventDefault(); const target = event.currentTarget.elements.namedItem('episodes') as HTMLInputElement; void updateLibrary({ episodesWatched: Number(target.value) }); }}><label htmlFor="detail-episodes">Progress</label><input id="detail-episodes" name="episodes" type="number" min={0} max={item.totalEpisodes || 10000} defaultValue={libraryEntry.status === 'completed' && item.totalEpisodes ? item.totalEpisodes : libraryEntry.episodesWatched} disabled={libraryEntry.status === 'completed'} /><span>{item.totalEpisodes ? `of ${item.totalEpisodes} episodes` : 'episodes watched'}{libraryEntry.status === 'completed' ? ' · Complete' : ''}</span>{libraryEntry.status !== 'completed' && <Button type="submit" variant="outline">Save progress</Button>}</form>}
         </div>
       </section>
       <section className="ratings-section" aria-labelledby="ratings-heading"><div className="section-topline"><div><p className="eyebrow">Provider and community scores</p><h2 id="ratings-heading">Ratings</h2></div></div>
@@ -264,6 +280,11 @@ export function TitlePage() {
           <article className="rating-panel"><p className="eyebrow">Showgraphy community</p>{item.communityRatingCount ? <strong>{item.communityRating?.toFixed(1)}<small> / 10</small></strong> : <p>No community ratings yet.</p>}<span>{item.communityRatingCount ? `${item.communityRatingCount.toLocaleString()} ${item.communityRatingCount === 1 ? 'rating' : 'ratings'}` : 'Your rating can start the conversation.'}</span></article>
           <article className="rating-panel rating-panel--yours"><p className="eyebrow">Your rating</p><form onSubmit={saveRating}><label className="visually-hidden" htmlFor="your-rating">Choose your rating</label><select id="your-rating" value={rating} onChange={(event) => setRating(event.target.value)}><option value="">Choose a score</option>{Array.from({ length: 19 }, (_, index) => (index + 2) / 2).map((value) => <option key={value} value={value}>{value.toFixed(1)} / 10</option>)}</select><Button type="submit" variant="outline" disabled={!rating}><Star size={14} /> Save rating</Button>{detail.data.myCommunityRating != null && <button type="button" className="text-button" onClick={removeRating}>Remove your rating</button>}</form></article>
         </div>
+      </section>
+      <section className="title-reviews" aria-labelledby="reviews-heading">
+        <div className="section-topline"><div><p className="eyebrow">Notes from the community</p><h2 id="reviews-heading"><MessageSquareText size={22} /> Reviews</h2><p>Rate this title once. Write as many separate reviews as you like.</p></div></div>
+        <form className="review-form" onSubmit={submitReview}><label htmlFor="title-review">Write a review</label><textarea id="title-review" value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} minLength={10} maxLength={3000} rows={5} placeholder="What stayed with you?" required /><span>{reviewBody.length}/3000</span><Button type="submit" disabled={reviewBody.trim().length < 10}>Publish review</Button></form>
+        <div className="review-list">{reviews.isLoading ? <LoadingLine label="Loading reviews" /> : reviews.data?.items.length ? reviews.data.items.map((review) => <article className="review-card" key={review._id}><header><strong>@{review.userId.username}</strong><time dateTime={review.createdAt}>{new Date(review.createdAt).toLocaleDateString()}</time></header><p>{review.body}</p></article>) : <p className="review-empty">No reviews yet. Start the conversation.</p>}</div>
       </section>
     </div>
   </div>;

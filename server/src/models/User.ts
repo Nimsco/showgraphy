@@ -10,6 +10,7 @@ const privacySchema = new Schema({
 
 const userSchema = new Schema({
   username: { type: String, required: true, lowercase: true, trim: true, minlength: 3, maxlength: 24, match: /^[a-z0-9_]+$/ },
+  usernameSetupRequired: { type: Boolean, default: false },
   email: { type: String, required: true, lowercase: true, trim: true, maxlength: 254 },
   passwordHash: { type: String, select: false },
   googleSub: { type: String, sparse: true, unique: true },

@@ -3,11 +3,37 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import { authenticate, authenticateOptional } from '../middleware/authenticate.js';
 import { CommunityRating, EmailActionToken, ListShare, MediaTitle, RefreshSession, User, UserLibraryEntry, UserList } from '../models/index.js';
-import { clearRefreshCookie } from '../services/auth.service.js';
+import { clearRefreshCookie, safeUser } from '../services/auth.service.js';
 import { getUserStatistics } from '../services/statistics.service.js';
 import { HttpError, route } from '../utils/http.js';
 
 export const usersRouter = Router();
+
+const usernameSchema = z.string().trim().toLowerCase().min(3).max(24).regex(/^[a-z0-9_]+$/, 'Use 3-24 letters, numbers, or underscores.');
+
+usersRouter.get('/username-availability', authenticate, route(async (request, response) => {
+  const username = usernameSchema.parse(request.query.username);
+  const currentUser = await User.findById(request.auth!.userId).select('usernameSetupRequired');
+  if (!currentUser) throw new HttpError(404, 'Account not found.');
+  const taken = await User.exists({ username, _id: { $ne: request.auth!.userId } });
+  response.json({ available: !taken, username });
+}));
+
+usersRouter.patch('/me/username', authenticate, route(async (request, response) => {
+  const username = usernameSchema.parse(request.body?.username);
+  const user = await User.findById(request.auth!.userId);
+  if (!user) throw new HttpError(404, 'Account not found.');
+  if (!user.usernameSetupRequired) throw new HttpError(409, 'Your username has already been set.');
+  if (await User.exists({ username, _id: { $ne: user._id } })) throw new HttpError(409, 'That username is already taken. Try another.');
+  user.username = username;
+  user.usernameSetupRequired = false;
+  try { await user.save(); }
+  catch (cause) {
+    if (cause && typeof cause === 'object' && 'code' in cause && cause.code === 11000) throw new HttpError(409, 'That username was just claimed. Try another.');
+    throw cause;
+  }
+  response.json({ user: safeUser(user) });
+}));
 
 usersRouter.patch('/me', authenticate, route(async (request, response) => {
   const input = z.object({
@@ -32,7 +58,7 @@ usersRouter.patch('/me', authenticate, route(async (request, response) => {
   }
   await user.save();
   response.json({ user: {
-    id: String(user._id), username: user.username, email: user.email,
+    id: String(user._id), username: user.username, usernameSetupRequired: user.usernameSetupRequired, email: user.email,
     emailVerified: user.emailVerified,
     avatar: user.avatar, bio: user.bio, profileVisibility: user.profileVisibility,
     privacySettings: user.privacySettings, themePreference: user.themePreference, createdAt: user.createdAt,

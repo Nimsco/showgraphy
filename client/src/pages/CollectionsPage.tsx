@@ -60,6 +60,8 @@ export function CollectionDetailPage() {
     catch (cause) { setError(cause instanceof Error ? cause.message : 'The title could not be added.'); }
   }
   async function removeTitle(titleId: string) {
+    const title = list?.orderedItems?.find((entry) => entry.titleId?._id === titleId)?.titleId;
+    if (!list || !title || !window.confirm(`Do you want to remove ${title.title} from ${list.name}?`)) return;
     try { await apiRequest(`/lists/${id}/items/${titleId}`, { method: 'DELETE' }); setError(''); setStatus(list?.listType === 'watchlist' ? 'Title removed from your watchlist.' : 'Title removed from this collection.'); await refresh(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'The title could not be removed.'); }
   }

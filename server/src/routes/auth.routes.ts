@@ -224,10 +224,8 @@ authRouter.get('/google/callback', route(async (request, response) => {
 
   let user = await User.findOne({ $or: [{ googleSub: identity.sub }, { email: identity.email.toLowerCase() }] });
   if (!user) {
-    const base = (identity.name || identity.email.split('@')[0] || 'viewer').normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 18) || 'viewer';
-    let username = base;
-    while (await User.exists({ username })) username = `${base.slice(0, 18)}_${randomBytes(2).toString('hex')}`;
-    user = await User.create({ username, email: identity.email.toLowerCase(), googleSub: identity.sub, avatar: identity.picture || '', emailVerified: true });
+    const username = `viewer_${randomBytes(6).toString('hex')}`;
+    user = await User.create({ username, usernameSetupRequired: true, email: identity.email.toLowerCase(), googleSub: identity.sub, avatar: identity.picture || '', emailVerified: true });
     await UserList.create({ userId: user._id, name: 'My Watchlist', slug: 'my-watchlist', listType: 'watchlist', visibility: 'private' });
   } else if (!user.googleSub) {
     user.googleSub = identity.sub;

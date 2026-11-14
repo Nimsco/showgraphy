@@ -24,13 +24,14 @@ export function Poster({ title, size = 'normal' }: { title: Pick<MediaTitle, 'ti
   </span>;
 }
 
-export function MediaCard({ title, meta, to, trailing }: { title: Pick<MediaTitle, 'title' | 'poster' | 'mediaType' | 'releaseDate' | 'communityRating' | 'communityRatingCount'>; meta?: string; to?: string; trailing?: ReactNode }) {
+export function MediaCard({ title, meta, to, trailing }: { title: Pick<MediaTitle, 'title' | 'poster' | 'mediaType' | 'releaseDate' | 'communityRating' | 'communityRatingCount' | 'anilistAverageScore'>; meta?: string; to?: string; trailing?: ReactNode }) {
   return <article className="media-card">
     {to ? <Link to={to} className="poster-link" aria-label={`Open ${title.title}`}><Poster title={title} /></Link> : <Poster title={title} />}
     <div className="media-card__body">
       <div className="media-card__title-row"><h3>{to ? <Link to={to}>{title.title}</Link> : title.title}</h3>{trailing}</div>
       <p className="media-card__meta">{meta || [title.releaseDate?.slice(0, 4), title.mediaType === 'movie' ? 'Film' : 'Series'].filter(Boolean).join(' · ')}</p>
       {title.communityRatingCount ? <p className="media-card__rating"><span aria-label="Community rating">Showgraphy</span> {title.communityRating?.toFixed(1)} <span className="rating-count">({title.communityRatingCount})</span></p> : null}
+      {title.anilistAverageScore != null ? <p className="media-card__rating"><span>AniList</span> {title.anilistAverageScore}/100</p> : null}
     </div>
   </article>;
 }

@@ -52,6 +52,7 @@ const searchCache = new Map<string, { expiresAt: number; value: unknown }>();
 const searchCacheTtl = 3 * 60_000;
 const incompleteHydrationAttempts = new Map<string, number>();
 const incompleteHydrationRetryMs = 5 * 60_000;
+const anilistEndpoint = env.ANILIST_GRAPHQL_URL || 'https://graphql.anilist.co';
 
 function hasEstimateMetadata(title: { mediaType: string; runtime?: number | null; totalEpisodes?: number | null }) {
   return Number(title.runtime ?? 0) > 0 && (title.mediaType === 'movie' || Number(title.totalEpisodes ?? 0) > 0);
@@ -160,7 +161,7 @@ async function searchAniList(query: string, page: number) {
     query: `query ($search: String, $page: Int) { Page(page: $page, perPage: 20) { pageInfo { lastPage } media(search: $search, type: ANIME, sort: SEARCH_MATCH) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes duration seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } } }`,
     variables: { search: query, page },
   };
-  const response = await fetch(env.ANILIST_GRAPHQL_URL, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body) });
+  const response = await fetch(anilistEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body) });
   if (!response.ok) throw new HttpError(response.status === 429 ? 429 : 502, response.status === 429 ? 'AniList is busy. Try again shortly.' : 'AniList could not be reached.');
   const payload = await response.json() as { data?: { Page?: { pageInfo?: { lastPage?: number }; media?: AniListMedia[] } } };
   const media = payload.data?.Page?.media ?? [];
@@ -170,14 +171,51 @@ async function searchAniList(query: string, page: number) {
 
 async function trendingAniList(page: number) {
   const body = {
-    query: `query ($page: Int) { Page(page: $page, perPage: 20) { pageInfo { lastPage } media(type: ANIME, sort: TRENDING_DESC) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes duration seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } } }`,
+    query: `query ($page: Int) { Page(page: $page, perPage: 18) { pageInfo { lastPage } media(type: ANIME, sort: TRENDING_DESC) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes duration seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } } }`,
     variables: { page },
   };
-  const response = await fetch(env.ANILIST_GRAPHQL_URL, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body) });
+  const response = await fetch(anilistEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body) });
   if (!response.ok) throw new HttpError(response.status === 429 ? 429 : 502, response.status === 429 ? 'AniList is busy. Try again shortly.' : 'AniList could not be reached.');
   const payload = await response.json() as { data?: { Page?: { pageInfo?: { lastPage?: number }; media?: AniListMedia[] } } };
   const items = await Promise.all((payload.data?.Page?.media ?? []).map(upsertAniList));
   return { items: items.filter((item): item is NonNullable<typeof item> => Boolean(item)), totalPages: payload.data?.Page?.pageInfo?.lastPage ?? 0 };
+}
+
+async function discoverTmdb(category: string | undefined, page: number) {
+  const country: Record<string, string> = { 'k-dramas': 'KR', 'c-dramas': 'CN', 'j-dramas': 'JP', 'thai-dramas': 'TH' };
+  if (category === 'documentaries') {
+    const discoverType = async (mediaType: 'movie' | 'tv') => {
+      const url = new URL(`https://api.themoviedb.org/3/discover/${mediaType}`);
+      url.searchParams.set('page', String(page));
+      url.searchParams.set('with_genres', '99');
+      if (!env.TMDB_READ_ACCESS_TOKEN) url.searchParams.set('api_key', env.TMDB_API_KEY!);
+      const response = await fetch(url, { headers: env.TMDB_READ_ACCESS_TOKEN ? { Authorization: `Bearer ${env.TMDB_READ_ACCESS_TOKEN}` } : {} });
+      if (!response.ok) throw new HttpError(response.status === 429 ? 429 : 502, response.status === 429 ? 'The catalog is busy. Try again shortly.' : 'The catalog could not be reached.');
+      return response.json() as Promise<TmdbResponse>;
+    };
+    const [movies, shows] = await Promise.all([discoverType('movie'), discoverType('tv')]);
+    const combined: TmdbItem[] = [];
+    for (let index = 0; index < Math.max(movies.results?.length ?? 0, shows.results?.length ?? 0); index += 1) {
+      const movie = movies.results?.[index];
+      const show = shows.results?.[index];
+      if (movie) combined.push({ ...movie, media_type: 'movie' });
+      if (show) combined.push({ ...show, media_type: 'tv' });
+    }
+    const items = await Promise.all(combined.map(upsertTmdb));
+    return { items: items.filter((item): item is NonNullable<typeof item> => Boolean(item && item.categories.includes('documentaries'))), totalPages: Math.max(movies.total_pages ?? 0, shows.total_pages ?? 0) };
+  }
+  const countryCode = category ? country[category] : undefined;
+  const type = category === 'movies' ? 'movie' : category === 'tv-shows' || countryCode ? 'tv' : 'all';
+  const endpoint = countryCode ? `https://api.themoviedb.org/3/discover/tv` : `https://api.themoviedb.org/3/trending/${type}/week`;
+  const url = new URL(endpoint);
+  url.searchParams.set('page', String(page));
+  if (countryCode) url.searchParams.set('with_origin_country', countryCode);
+  if (!env.TMDB_READ_ACCESS_TOKEN) url.searchParams.set('api_key', env.TMDB_API_KEY!);
+  const response = await fetch(url, { headers: env.TMDB_READ_ACCESS_TOKEN ? { Authorization: `Bearer ${env.TMDB_READ_ACCESS_TOKEN}` } : {} });
+  if (!response.ok) throw new HttpError(response.status === 429 ? 429 : 502, response.status === 429 ? 'The catalog is busy. Try again shortly.' : 'The catalog could not be reached.');
+  const payload = await response.json() as TmdbResponse;
+  const items = await Promise.all((payload.results ?? []).map((item) => upsertTmdb({ ...item, media_type: item.media_type ?? (type === 'movie' ? 'movie' : 'tv') })));
+  return { items: items.filter((item): item is NonNullable<typeof item> => Boolean(item && (!category || item.categories.includes(category)))), totalPages: payload.total_pages ?? 0 };
 }
 
 export async function discoverCatalog(category: string | undefined, page: number) {
@@ -185,7 +223,7 @@ export async function discoverCatalog(category: string | undefined, page: number
   const cached = searchCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const useAniList = category === 'anime';
-  const configured = useAniList ? Boolean(env.ANILIST_GRAPHQL_URL) : Boolean(env.TMDB_API_KEY || env.TMDB_READ_ACCESS_TOKEN);
+  const configured = useAniList ? true : Boolean(env.TMDB_API_KEY || env.TMDB_READ_ACCESS_TOKEN);
   let providerItems: Awaited<ReturnType<typeof trendingAniList>>['items'] = [];
   let totalPages = 0;
   if (configured && useAniList) {
@@ -193,21 +231,15 @@ export async function discoverCatalog(category: string | undefined, page: number
     providerItems = result.items;
     totalPages = result.totalPages;
   } else if (configured) {
-    const type = category === 'movies' ? 'movie' : category === 'tv-shows' ? 'tv' : 'all';
-    const url = new URL(`https://api.themoviedb.org/3/trending/${type}/week`);
-    url.searchParams.set('page', String(page));
-    if (!env.TMDB_READ_ACCESS_TOKEN) url.searchParams.set('api_key', env.TMDB_API_KEY!);
-    const response = await fetch(url, { headers: env.TMDB_READ_ACCESS_TOKEN ? { Authorization: `Bearer ${env.TMDB_READ_ACCESS_TOKEN}` } : {} });
-    if (!response.ok) throw new HttpError(response.status === 429 ? 429 : 502, response.status === 429 ? 'The catalog is busy. Try again shortly.' : 'The catalog could not be reached.');
-    const payload = await response.json() as TmdbResponse;
-    const items = await Promise.all((payload.results ?? []).map((item) => upsertTmdb({ ...item, media_type: item.media_type ?? (type === 'movie' ? 'movie' : type === 'tv' ? 'tv' : undefined) })));
-    providerItems = items.filter((item): item is NonNullable<typeof item> => Boolean(item && (!category || item.categories.includes(category))));
-    totalPages = payload.total_pages ?? 0;
+    const result = await discoverTmdb(category, page);
+    providerItems = result.items;
+    totalPages = result.totalPages;
   }
   const filter = category ? { categories: category } : {};
-  const localItems = await MediaTitle.find(filter).select('title originalTitle alternativeTitles mediaType formats categories countries languages genres synopsis poster backdrop releaseDate runtime seasons totalEpisodes providerIds.tmdb providerIds.anilist tmdbRating tmdbVoteCount anilistAverageScore anilistMeanScore anilistPopularity communityRating communityRatingCount metadataSource').sort({ communityRatingCount: -1, updatedAt: -1 }).skip((page - 1) * 20).limit(20).lean();
+  const pageSize = 18;
+  const localItems = await MediaTitle.find(filter).select('title originalTitle alternativeTitles mediaType formats categories countries languages genres synopsis poster backdrop releaseDate runtime seasons totalEpisodes providerIds.tmdb providerIds.anilist tmdbRating tmdbVoteCount anilistAverageScore anilistMeanScore anilistPopularity communityRating communityRatingCount metadataSource').sort({ communityRatingCount: -1, updatedAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).lean();
   const providerIds = new Set(providerItems.map((item) => String(item._id)));
-  const value = { items: [...providerItems, ...localItems.filter((item) => !providerIds.has(String(item._id)))].slice(0, 20), page, totalPages: Math.max(totalPages, Math.ceil(await MediaTitle.countDocuments(filter) / 20)), providers: { tmdb: Boolean(env.TMDB_API_KEY || env.TMDB_READ_ACCESS_TOKEN), anilist: Boolean(env.ANILIST_GRAPHQL_URL) }, searchConfigured: configured };
+  const value = { items: [...providerItems, ...localItems.filter((item) => !providerIds.has(String(item._id)))].slice(0, pageSize), page, totalPages: Math.max(totalPages, Math.ceil(await MediaTitle.countDocuments(filter) / pageSize)), providers: { tmdb: Boolean(env.TMDB_API_KEY || env.TMDB_READ_ACCESS_TOKEN), anilist: true }, searchConfigured: configured };
   if (searchCache.size > 500) searchCache.clear();
   searchCache.set(cacheKey, { expiresAt: Date.now() + searchCacheTtl, value });
   return value;
@@ -227,13 +259,34 @@ export async function hydrateProviderTitle(titleId: string) {
   const metadataIsFresh = estimateMetadataIsComplete && Boolean(title.metadataCheckedAt && Date.now() - title.metadataCheckedAt.getTime() < 7 * 86_400_000);
   if (ratingsAreFresh && metadataIsFresh) return title;
 
+  if (!anilistId && !estimateMetadataIsComplete) {
+    try {
+      const result = await searchAniList(title.title, 1);
+      const normalize = (value: string) => value.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const knownNames = new Set([title.title, title.originalTitle, ...(title.alternativeTitles ?? [])].filter((value): value is string => Boolean(value)).map(normalize));
+      const match = result.items.find((candidate) => [candidate.title, candidate.originalTitle, ...(candidate.alternativeTitles ?? [])].filter((name): name is string => typeof name === 'string' && Boolean(name)).some((name) => knownNames.has(normalize(name))));
+      if (match) {
+        await MediaTitle.updateOne({ _id: title._id }, { $set: {
+          'providerIds.anilist': match.providerIds?.anilist,
+          ...(match.runtime ? { runtime: match.runtime } : {}),
+          ...(match.totalEpisodes ? { totalEpisodes: match.totalEpisodes } : {}),
+          ...(match.anilistAverageScore != null ? { anilistAverageScore: match.anilistAverageScore } : {}),
+          ...(match.anilistMeanScore != null ? { anilistMeanScore: match.anilistMeanScore } : {}),
+          ...(match.anilistPopularity != null ? { anilistPopularity: match.anilistPopularity } : {}),
+          metadataSource: 'combined', metadataCheckedAt: new Date(), ratingsCheckedAt: new Date(),
+        } });
+        return MediaTitle.findById(title._id);
+      }
+    } catch { /* Keep the original catalog data if AniList cannot be reached. */ }
+  }
+
   if (anilistId && (!ratingsAreFresh || !metadataIsFresh)) {
     const body = {
       query: `query ($id: Int) { Media(id: $id, type: ANIME) { id title { english romaji native } description(asHtml: false) coverImage { large } bannerImage startDate { year month day } episodes duration seasonYear format countryOfOrigin genres studios(isMain: true) { nodes { name } } averageScore meanScore popularity } }`,
       variables: { id: Number(anilistId) },
     };
     try {
-      const response = await fetch(env.ANILIST_GRAPHQL_URL, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body) });
+      const response = await fetch(anilistEndpoint, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body) });
       if (response.ok) {
         const payload = await response.json() as { data?: { Media?: AniListMedia } };
         const media = payload.data?.Media;
@@ -296,8 +349,8 @@ export async function searchCatalog(query: string, category: string | undefined,
   const cached = searchCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const useAniList = category === 'anime';
-  const configured = useAniList ? Boolean(env.ANILIST_GRAPHQL_URL) : Boolean(env.TMDB_API_KEY || env.TMDB_READ_ACCESS_TOKEN);
-  const providers = { tmdb: Boolean(env.TMDB_API_KEY || env.TMDB_READ_ACCESS_TOKEN), anilist: Boolean(env.ANILIST_GRAPHQL_URL) };
+  const configured = useAniList ? true : Boolean(env.TMDB_API_KEY || env.TMDB_READ_ACCESS_TOKEN);
+  const providers = { tmdb: Boolean(env.TMDB_API_KEY || env.TMDB_READ_ACCESS_TOKEN), anilist: true };
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const expression = new RegExp(escaped, 'i');
   const localQuery: Record<string, unknown> = { $or: [{ title: expression }, { originalTitle: expression }, { alternativeTitles: expression }] };

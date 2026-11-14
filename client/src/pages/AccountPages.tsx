@@ -19,13 +19,6 @@ type ProfileResult = {
   ratings?: Array<{ rating: number; updatedAt: string; titleId: ProfileMedia }>;
 };
 
-function formatMinutes(minutes: number) {
-  if (!minutes) return 'No runtime data yet';
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
-}
-
 const insightCategories = [
   { key: 'movies', label: 'Movies' },
   { key: 'tv-shows', label: 'Series' },
@@ -56,7 +49,6 @@ async function createInsightsImage(stats: Statistics, username: string) {
   const colors = imageColors();
   const number = (value: number) => value.toLocaleString();
   const categories = new Map(stats.byCategory.map((category) => [category.category, category.count]));
-  const hours = stats.minutes ? `${(stats.minutes / 60).toLocaleString(undefined, { maximumFractionDigits: 1 })}h` : '—';
   const monthHeadingY = 1072 + Math.ceil(insightCategories.length / 2) * 82 + 50;
   const monthRows = Math.ceil(stats.byMonth.length / 6);
   canvas.height = Math.max(1560, monthHeadingY + (stats.byMonth.length ? 28 + monthRows * 62 : 0) + 110);
@@ -96,7 +88,6 @@ async function createInsightsImage(stats: Statistics, username: string) {
     { label: 'On hold', value: number(stats.onHold) },
     { label: 'Dropped', value: number(stats.dropped) },
     { label: 'Episodes watched', value: number(stats.episodes) },
-    { label: 'Hours watched', value: hours },
   ];
   const cardWidth = 336;
   const cardHeight = 142;
@@ -229,9 +220,9 @@ export function InsightsPage() {
     <PageHeading eyebrow="An account of what you watched" title="Your viewing, in context." description="Every total here comes from titles you added to your own library." action={<Button variant="outline" onClick={() => void shareAsImage()} disabled={sharing || !stats?.total}><Share2 size={16} />{sharing ? 'Preparing image…' : 'Share as image'}</Button>} />
     {(shareMessage || shareError) && <p className={shareError ? 'form-alert' : 'success-banner'} role={shareError ? 'alert' : 'status'}>{shareError || shareMessage}<button aria-label="Dismiss message" onClick={() => { setShareMessage(''); setShareError(''); }}><X size={15} /></button></p>}
     {stats?.total ? <>
-      <section className="insight-lead"><div><p className="eyebrow">Across your collection</p><strong>{stats.completed}</strong><span>{stats.completed === 1 ? 'title completed' : 'titles completed'}</span></div><p>{stats.completedMovies} movies and {stats.completedSeries} series completed. Your library holds {stats.movies} movies and {stats.series} series. Watch time uses recorded episode progress and title runtime metadata.{stats.unestimatedTitles ? ` Runtime is missing for ${stats.unestimatedTitles} watched ${stats.unestimatedTitles === 1 ? 'title' : 'titles'}, so they are not included yet.` : ''}</p></section>
+      <section className="insight-lead"><div><p className="eyebrow">Across your collection</p><strong>{stats.completed}</strong><span>{stats.completed === 1 ? 'title completed' : 'titles completed'}</span></div><p>{stats.completedMovies} movies and {stats.completedSeries} series completed. Your library holds {stats.movies} movies and {stats.series} series across {stats.total} titles.</p></section>
       <section className="stats-facts" aria-label="Watch status totals">
-        <article><span>Movies completed</span><strong>{stats.completedMovies}</strong></article><article><span>Series completed</span><strong>{stats.completedSeries}</strong></article><article><span>Watching</span><strong>{stats.watching}</strong></article><article><span>Plan to watch</span><strong>{stats.planned}</strong></article><article><span>On hold</span><strong>{stats.onHold}</strong></article><article><span>Dropped</span><strong>{stats.dropped}</strong></article><article><span>Episodes watched</span><strong>{stats.episodes}</strong></article><article><span>Estimated watch time</span><strong>{formatMinutes(stats.minutes)}</strong></article>
+        <article><span>Movies completed</span><strong>{stats.completedMovies}</strong></article><article><span>Series completed</span><strong>{stats.completedSeries}</strong></article><article><span>Watching</span><strong>{stats.watching}</strong></article><article><span>Plan to watch</span><strong>{stats.planned}</strong></article><article><span>On hold</span><strong>{stats.onHold}</strong></article><article><span>Dropped</span><strong>{stats.dropped}</strong></article><article><span>Episodes watched</span><strong>{stats.episodes}</strong></article><article><span>Titles in library</span><strong>{stats.total}</strong></article>
       </section>
       {stats.byMonth.length ? <section className="chart-section"><div className="section-topline"><div><p className="eyebrow">Completed over time</p><h2>Your watchline, month by month</h2></div><span className="chart-note">Based on completion dates</span></div><div className="month-chart" role="img" aria-label={`Completed titles per month: ${monthDescription}`}>
         {stats.byMonth.map((item) => <div className="month-chart__column" key={item.month}><div className="month-chart__bar-wrap"><span className="month-chart__value" style={{ bottom: `calc(${Math.max(8, item.count / maxMonth * 100)}% + 7px)` }}>{item.count}</span><span className="month-chart__bar" style={{ height: `${Math.max(8, item.count / maxMonth * 100)}%` }} /></div><span className="month-chart__label">{new Date(`${item.month}-01T00:00:00`).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })}</span></div>)}
@@ -334,8 +325,7 @@ export function ProfilePage() {
   return <main className="profile-page">
     <div className="profile-topbar"><Link to={ownProfile ? '/app' : '/'} className="inline-arrow"><ArrowLeft size={15} /> {ownProfile ? 'Back to your journal' : 'Showgraphy'}</Link>{ownProfile && <Link className="button button--outline" to="/app/settings">Edit profile</Link>}</div>
     <header className="profile-masthead"><div className="profile-avatar">{profile.avatar ? <img src={profile.avatar} alt="" /> : <UserRound size={29} strokeWidth={1.3} />}</div><div><p className="eyebrow">A personal watchline</p><h1>@{profile.username}</h1><p className="profile-handle">Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</p>{profile.bio && <p className="profile-bio">{profile.bio}</p>}</div></header>
-    {stats && <section className="profile-stats"><div><strong>{stats.completed}</strong><span>completed</span></div><div><strong>{stats.movies}</strong><span>films</span></div><div><strong>{stats.series}</strong><span>series</span></div><div><strong>{formatMinutes(stats.minutes)}</strong><span>estimated watch time</span></div></section>}
-    {stats?.unestimatedTitles ? <p className="profile-estimate-note">Runtime or episode data is still missing for {stats.unestimatedTitles} watched {stats.unestimatedTitles === 1 ? 'title' : 'titles'}.</p> : null}
+    {stats && <section className="profile-stats"><div><strong>{stats.completed}</strong><span>completed</span></div><div><strong>{stats.movies}</strong><span>films</span></div><div><strong>{stats.series}</strong><span>series</span></div><div><strong>{stats.total}</strong><span>titles in library</span></div></section>}
     {stats && <section className="profile-category-stats" aria-label="Titles by category"><div><p className="eyebrow">Across the library</p><h2>By type</h2><p>Counts include titles at every watch status.</p></div><ul>{insightCategories.map((category) => <li key={category.key}><span>{category.label}</span><strong>{stats.byCategory.find((item) => item.category === category.key)?.count ?? 0}</strong></li>)}</ul></section>}
     {favorites?.length ? <section className="profile-section"><div className="section-topline"><div><p className="eyebrow">Featured by @{profile.username}</p><h2>{profile.username}'s top 10</h2></div></div><div className="media-grid media-grid--compact">{favorites.map((title) => <article className="media-card" key={title._id}><Poster title={title} /><div className="media-card__body"><h3>{title.title}</h3><p className="media-card__meta">{title.releaseDate?.slice(0, 4)} · {title.mediaType}</p></div></article>)}</div></section> : null}
     {recent?.length ? <section className="profile-section"><div className="section-topline"><div><p className="eyebrow">The latest pages</p><h2>Recently completed</h2></div></div><div className="media-grid media-grid--compact">{recent.map((entry, index) => <MediaCard key={`${entry.titleId._id}-${index}`} title={entry.titleId} meta={entry.completedAt ? new Date(entry.completedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : 'Completed'} />)}</div></section> : null}
