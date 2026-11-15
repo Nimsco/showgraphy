@@ -1516,3 +1516,61 @@ kbd { display: inline-grid; min-width: 20px; height: 20px; place-items: center; 
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 }
 
+/* Profile, private-message, and Community interaction refinements. */
+.settings-save__action { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.settings-save__notice { color: var(--success) !important; font-size: 11px !important; }
+.chat-message__body > header a { color: var(--primary); text-decoration: none; }
+.chat-message__body > header a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.conversation-header__avatar { display: grid; width: 40px; height: 40px; flex: 0 0 40px; place-items: center; overflow: hidden; border-radius: 50%; }
+.conversation-header__identity > a { color: var(--ink); }
+.direct-message__actions { position: absolute; top: -12px; right: 5px; display: flex; gap: 4px; opacity: 0; transition: opacity var(--t-ui) var(--ease); }
+.direct-message:hover .direct-message__actions, .direct-message__actions:focus-within { opacity: 1; }
+.direct-message__actions button { display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink-2); box-shadow: 0 3px 10px #0002; cursor: pointer; }
+.direct-message__actions button:hover { color: var(--primary); }
+.direct-message__actions button:last-child:hover { color: var(--error); }
+.direct-message.is-deleted { color: var(--ink-3); font-style: italic; }
+.private-message-edit { display: grid; gap: 14px; margin-top: 17px; }
+.private-message-edit label { display: grid; gap: 7px; color: var(--ink-2); font-size: 12px; }
+.private-message-edit textarea { min-height: 112px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); font: 13px/1.6 var(--font-text); resize: vertical; }
+.private-message-edit textarea:focus { outline: 2px solid color-mix(in srgb, var(--focus) 45%, transparent); outline-offset: 1px; }
+.community-feed { gap: 12px; }
+.community-post { padding: 17px; border: 1px solid color-mix(in srgb, var(--line) 62%, transparent); border-radius: 17px; background: color-mix(in srgb, var(--surface) 78%, transparent); }
+.community-post--interactive { cursor: pointer; transition: border-color var(--t-ui), background var(--t-ui), transform var(--t-ui); }
+.community-post--interactive:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--primary) 36%, var(--line)); background: var(--surface); }
+.community-post-dialog { z-index: 75; }
+.community-post-dialog__panel { display: flex; width: min(100%, 780px); max-height: min(92vh, 960px); flex-direction: column; padding: 19px 22px; border: 1px solid var(--line-strong); border-radius: 20px; background: var(--surface); box-shadow: 0 24px 90px #0007; }
+.community-post-dialog__header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding-bottom: 10px; }
+.community-post-dialog__header .eyebrow { margin: 0; }
+.community-post-dialog__panel > .community-post { flex: 0 0 auto; padding: 4px 0 12px; border: 0; border-radius: 0; background: transparent; cursor: default; }
+.community-post-dialog__comments { min-height: 0; overflow: auto; padding-top: 16px; border-top: 1px solid var(--line); }
+.community-post-dialog__comments > h2 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 13px; font: 500 20px var(--font-display); }
+.community-post-dialog__comments > h2 span { color: var(--ink-3); font: 11px var(--font-text); }
+.community-comment-form--dialog { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line); }
+.community-comment-form--dialog > textarea { min-height: 42px; max-height: 120px; padding: 10px 12px; border: 1px solid transparent; border-radius: 12px; background: var(--surface-raised); color: var(--ink); font: 12px/1.5 var(--font-text); resize: vertical; }
+.community-comment-form--dialog > textarea:focus { border-color: color-mix(in srgb, var(--focus) 38%, transparent); outline: 0; }
+.community-comment-form--dialog > .button { min-height: 42px; }
+.community-comment-form--dialog > p, .community-comment-form--dialog > .form-alert { grid-column: 1 / -1; }
+.community-edit-titles { display: grid; gap: 6px; margin: 7px 0 13px; }
+.community-edit-titles__heading { display: flex; align-items: center; justify-content: space-between; color: var(--ink-2); font-size: 11px; }
+.community-edit-titles__heading button { display: inline-flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 8px; border: 0; border-radius: 8px; background: var(--primary-soft); color: var(--primary); font: 600 10px var(--font-text); cursor: pointer; }
+.community-edit-title { display: flex; align-items: center; gap: 4px; }
+.community-edit-title .community-title-ref { flex: 1; margin: 0; }
+.community-edit-title > button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--ink-3); cursor: pointer; }
+.community-edit-title > button:hover { background: color-mix(in srgb, var(--error) 12%, transparent); color: var(--error); }
+.community-edit-titles > small { color: var(--ink-3); font-size: 10px; }
+.community-post__open { padding: 3px 0; border: 0; background: transparent; font: 10px var(--font-text); cursor: pointer; }
+.community-share-link { display: grid; gap: 7px; margin-top: 17px; color: var(--ink-2); font-size: 11px; }
+.community-share-link input { min-width: 0; min-height: 42px; padding: 0 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 11px var(--font-mono); }
+@media (hover: none) {
+  .direct-message__actions { position: static; margin-top: 6px; opacity: 1; }
+  .direct-message__actions button { width: 32px; height: 32px; }
+}
+@media (max-width: 600px) {
+  .settings-save__action { width: 100%; align-items: flex-start; flex-direction: column; gap: 8px; }
+  .community-post { padding: 14px 12px 11px; }
+  .community-post-dialog { padding: 8px; }
+  .community-post-dialog__panel { max-height: 96vh; padding: 14px 12px; border-radius: 16px; }
+  .community-comment-form--dialog { grid-template-columns: 1fr; }
+  .community-comment-form--dialog > .button { justify-self: end; }
+}
+

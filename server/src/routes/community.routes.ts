@@ -81,7 +81,7 @@ const createSchema = z.object({
   spoilerDescription: z.string().trim().max(120).default(''),
   poll: pollSchema,
 });
-const editSchema = z.object({ content: z.string().trim().min(1).max(4000), category: z.enum(['discussion', 'question', 'recommendation', 'general']).optional(), containsSpoilers: z.boolean().optional(), spoilerDescription: z.string().trim().max(120).optional(), mentionIds: z.array(z.string().refine(validId)).max(20).optional() });
+const editSchema = z.object({ content: z.string().trim().min(1).max(4000), category: z.enum(['discussion', 'question', 'recommendation', 'general']).optional(), titleIds: z.array(z.string().refine(validId)).max(8).optional(), containsSpoilers: z.boolean().optional(), spoilerDescription: z.string().trim().max(120).optional(), mentionIds: z.array(z.string().refine(validId)).max(20).optional() });
 const commentSchema = z.object({ content: z.string().trim().min(1).max(2000), parentCommentId: z.string().refine(validId).optional(), mentionIds: z.array(z.string().refine(validId)).max(20).default([]) });
 
 communityRouter.post('/uploads/signature', route(async (request, response) => {
@@ -188,14 +188,21 @@ communityRouter.post('/posts', route(async (request, response) => {
 
 communityRouter.patch('/posts/:postId', route(async (request, response) => {
   const input = editSchema.parse(request.body);
-  const { mentionIds, ...fields } = input;
+  const { mentionIds, titleIds, ...fields } = input;
   let mentionRefs: string[] | undefined;
+  let titleSnapshots: Array<{ titleId: mongoose.Types.ObjectId; title: string; poster: string; mediaType: 'movie' | 'series'; releaseDate?: Date | null }> | undefined;
+  if (titleIds !== undefined) {
+    const uniqueTitleIds = [...new Set(titleIds)];
+    const titles = uniqueTitleIds.length ? await MediaTitle.find({ _id: { $in: uniqueTitleIds } }).select('_id title poster mediaType releaseDate').lean() : [];
+    if (titles.length !== uniqueTitleIds.length) throw new HttpError(400, 'One or more referenced titles could not be found.');
+    titleSnapshots = titles.map((title) => ({ titleId: title._id, title: title.title, poster: title.poster, mediaType: title.mediaType, releaseDate: title.releaseDate }));
+  }
   if (mentionIds !== undefined) {
     mentionRefs = [...new Set(mentionIds)].filter((id) => id !== String(request.auth!.userId));
     const people = mentionRefs.length ? await User.find({ _id: { $in: mentionRefs, $nin: await blockedIds(String(request.auth!.userId)) }, accountStatus: 'active', profileVisibility: 'public' }).select('_id username') : [];
     if (people.length !== mentionRefs.length || people.some((person) => !fields.content.toLowerCase().includes(`@${person.username.toLowerCase()}`))) throw new HttpError(400, 'One or more selected mentions are unavailable or missing from your post.');
   }
-  const item = await CommunityPost.findOneAndUpdate({ _id: postIdSchema.parse(request.params.postId), author: request.auth!.userId, deletedAt: null }, { $set: { ...fields, ...(mentionRefs !== undefined ? { mentions: mentionRefs } : {}), isEdited: true, editedAt: new Date() } }, { new: true, runValidators: true }).populate('author', safeUserFields);
+  const item = await CommunityPost.findOneAndUpdate({ _id: postIdSchema.parse(request.params.postId), author: request.auth!.userId, deletedAt: null }, { $set: { ...fields, ...(titleSnapshots !== undefined ? { mediaReferences: titleSnapshots } : {}), ...(mentionRefs !== undefined ? { mentions: mentionRefs } : {}), isEdited: true, editedAt: new Date() } }, { new: true, runValidators: true }).populate('author', safeUserFields);
   if (!item) throw new HttpError(404, 'Your discussion could not be found.');
   response.json({ item: { ...item.toObject(), isLiked: false, isBookmarked: false } });
 }));

@@ -1,8 +1,8 @@
 import { useDeferredValue, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Copy, FolderHeart, Link2, Plus, Search, Share2, Trash2, X } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
-import { Button, EmptyState, LoadingLine, Logo, PageHeading, Poster } from '../components/ui';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Button, ConfirmDialog, EmptyState, LoadingLine, Logo, PageHeading, Poster } from '../components/ui';
 import { apiRequest } from '../lib/api';
 import type { MediaTitle, UserList } from '../types';
 
@@ -44,6 +44,7 @@ export function CollectionsPage() {
 
 export function CollectionDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const client = useQueryClient();
   const lists = useQuery({ queryKey: ['lists'], queryFn: () => apiRequest<ListsResult>('/lists') });
   const [search, setSearch] = useState('');
@@ -51,6 +52,9 @@ export function CollectionDetailPage() {
   const [shareUrl, setShareUrl] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [confirmTarget, setConfirmTarget] = useState<{ kind: 'remove-title'; titleId: string; title: string } | { kind: 'delete-collection'; name: string } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState('');
   const list = lists.data?.items.find((item) => item._id === id);
   const searchResults = useQuery({ queryKey: ['catalog-search', deferred, 'collection'], queryFn: () => apiRequest<SearchResult>(`/catalog/search?q=${encodeURIComponent(deferred)}`), enabled: deferred.length >= 2, retry: false });
 
@@ -61,9 +65,8 @@ export function CollectionDetailPage() {
   }
   async function removeTitle(titleId: string) {
     const title = list?.orderedItems?.find((entry) => entry.titleId?._id === titleId)?.titleId;
-    if (!list || !title || !window.confirm(`Do you want to remove ${title.title} from ${list.name}?`)) return;
-    try { await apiRequest(`/lists/${id}/items/${titleId}`, { method: 'DELETE' }); setError(''); setStatus(list?.listType === 'watchlist' ? 'Title removed from your watchlist.' : 'Title removed from this collection.'); await refresh(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'The title could not be removed.'); }
+    if (!list || !title) return;
+    setConfirmTarget({ kind: 'remove-title', titleId, title: title.title }); setConfirmError('');
   }
   async function createShare() {
     try { setError(''); const result = await apiRequest<{ url: string }>(`/lists/${id}/share`, { method: 'POST', body: JSON.stringify({ expiresInDays: 30 }) }); setShareUrl(result.url); setStatus('A 30-day share link is ready.'); await navigator.clipboard.writeText(result.url).catch(() => undefined); }
@@ -79,9 +82,24 @@ export function CollectionDetailPage() {
   }
   async function deleteCollection() {
     if (!list || list.listType === 'watchlist') return;
-    if (!window.confirm(`Delete “${list.name}”? This removes the collection and its share links.`)) return;
-    try { await apiRequest(`/lists/${id}`, { method: 'DELETE' }); window.location.assign('/app/collections'); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'The collection could not be deleted.'); }
+    setConfirmTarget({ kind: 'delete-collection', name: list.name }); setConfirmError('');
+  }
+  async function confirmCollectionAction() {
+    if (!confirmTarget || !list) return;
+    setConfirmBusy(true); setConfirmError('');
+    try {
+      if (confirmTarget.kind === 'remove-title') {
+        await apiRequest(`/lists/${id}/items/${confirmTarget.titleId}`, { method: 'DELETE' });
+        setStatus(list.listType === 'watchlist' ? 'Title removed from your watchlist.' : 'Title removed from this collection.');
+        await refresh();
+      } else {
+        await apiRequest(`/lists/${id}`, { method: 'DELETE' });
+        await client.invalidateQueries({ queryKey: ['lists'] });
+        navigate('/app/collections', { replace: true });
+      }
+      setConfirmTarget(null);
+    } catch (cause) { setConfirmError(cause instanceof Error ? cause.message : 'This collection change could not be completed.'); }
+    finally { setConfirmBusy(false); }
   }
 
   if (lists.isLoading) return <div className="page-wrap"><LoadingLine label="Opening collection" /></div>;
@@ -99,6 +117,7 @@ export function CollectionDetailPage() {
     </section>
     {titles.length ? <div className="collection-titles">{titles.map((title, index) => <article className="collection-title-row" key={`${title._id}-${index}`}><span className="collection-title-row__position">{String(index + 1).padStart(2, '0')}</span><Link to={`/app/title/${title._id}`} className="collection-title-row__poster"><Poster title={title} size="small" /></Link><div><h2><Link to={`/app/title/${title._id}`}>{title.title}</Link></h2><p>{title.releaseDate?.slice(0, 4)} · {title.mediaType === 'movie' ? 'Film' : 'Series'}</p></div>{list.listType === 'watchlist' ? <button className="watchlist-remove" aria-label={`Remove ${title.title} from your watchlist`} onClick={() => void removeTitle(title._id)}><X size={15} /><span>Remove</span></button> : <button className="icon-button" aria-label={`Remove ${title.title} from this collection`} onClick={() => void removeTitle(title._id)}><X size={17} /></button>}</article>)}</div> : <EmptyState title="This collection is still open" description="Search for a title above and add it when you find one that belongs here." action={<Link className="inline-arrow" to="/app/discover">Browse the catalog <ArrowRight size={15} /></Link>} />}
     <section className="share-panel"><div><p className="eyebrow">Share this collection</p><h2>Let someone see your picks.</h2><p>Anyone with the link can view titles. They cannot see your notes or account details. The link expires after 30 days and can be revoked.</p></div><div className="share-controls">{shareUrl ? <><label className="visually-hidden" htmlFor="share-url">Share link</label><input id="share-url" value={shareUrl} readOnly onFocus={(event) => event.currentTarget.select()} /><Button variant="outline" onClick={() => void navigator.clipboard.writeText(shareUrl).then(() => setStatus('Share link copied.')).catch(() => setStatus('Select the link and copy it.'))}><Copy size={15} /> Copy</Button><Button variant="quiet" onClick={() => void revokeShare()}>Revoke</Button></> : <Button onClick={() => void createShare()}><Share2 size={16} /> Create share link</Button>}</div></section>
+    <ConfirmDialog open={Boolean(confirmTarget)} eyebrow={confirmTarget?.kind === 'delete-collection' ? 'Collections' : 'Update this list'} title={confirmTarget?.kind === 'delete-collection' ? `Delete “${confirmTarget.name}”?` : 'Remove this title?'} description={confirmTarget?.kind === 'delete-collection' ? 'This removes the collection and its share links.' : `Remove “${confirmTarget?.kind === 'remove-title' ? confirmTarget.title : ''}” from this ${list.listType === 'watchlist' ? 'watchlist' : 'collection'}?`} confirmLabel={confirmTarget?.kind === 'delete-collection' ? 'Delete collection' : 'Remove title'} busy={confirmBusy} error={confirmError} onCancel={() => setConfirmTarget(null)} onConfirm={() => void confirmCollectionAction()} />
   </div>;
 }
 

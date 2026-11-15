@@ -359,6 +359,41 @@ socialRouter.post('/conversations/:conversationId/messages', route(async (reques
   });
   response.status(201).json({ message });
 }));
+socialRouter.patch('/conversations/:conversationId/messages/:messageId', route(async (request, response) => {
+  const userId = String(request.auth!.userId);
+  const conversation = await conversationFor(String(request.params.conversationId), userId);
+  const messageId = request.params.messageId;
+  if (!id(messageId) || conversation.status === 'declined') throw new HttpError(404, 'Message not found.');
+  const otherId = String(conversation.participants.find((participant) => String(participant) !== userId));
+  if (!otherId || await blockedEither(userId, otherId)) throw new HttpError(404, 'Message not found.');
+  const content = z.string().trim().min(1).max(2000).parse(request.body?.content);
+  const message = await DirectMessage.findOne({ _id: messageId, conversationId: conversation._id, senderId: userId, deletedAt: null });
+  if (!message) throw new HttpError(404, 'Your message could not be found.');
+  message.content = content;
+  message.editedAt = new Date();
+  await message.save();
+  const event = { _id: String(message._id), conversationId: String(conversation._id), senderId: userId, content, clientMessageId: message.clientMessageId, createdAt: message.createdAt.toISOString(), editedAt: message.editedAt.toISOString() };
+  emitDirectMessage(String(conversation._id), conversation.participants.map(String), event);
+  response.json({ message: await message.populate('senderId', 'username avatar') });
+}));
+socialRouter.delete('/conversations/:conversationId/messages/:messageId', route(async (request, response) => {
+  const userId = String(request.auth!.userId);
+  const conversation = await conversationFor(String(request.params.conversationId), userId);
+  const messageId = request.params.messageId;
+  if (!id(messageId) || conversation.status === 'declined') throw new HttpError(404, 'Message not found.');
+  const otherId = String(conversation.participants.find((participant) => String(participant) !== userId));
+  if (!otherId || await blockedEither(userId, otherId)) throw new HttpError(404, 'Message not found.');
+  const message = await DirectMessage.findOne({ _id: messageId, conversationId: conversation._id, senderId: userId, deletedAt: null });
+  if (!message) throw new HttpError(404, 'Your message could not be found.');
+  message.content = 'Message deleted.';
+  message.deletedAt = new Date();
+  await message.save();
+  emitDirectMessage(String(conversation._id), conversation.participants.map(String), {
+    _id: String(message._id), conversationId: String(conversation._id), senderId: userId, content: message.content,
+    clientMessageId: message.clientMessageId, createdAt: message.createdAt.toISOString(), deletedAt: message.deletedAt.toISOString(),
+  });
+  response.status(204).end();
+}));
 for (const action of ['accept', 'decline'] as const) socialRouter.patch(`/conversations/:conversationId/${action}`, route(async (request, response) => {
   const conversation = await conversationFor(String(request.params.conversationId), String(request.auth!.userId));
   if (conversation.status !== 'pending' || String(conversation.requestedBy) === String(request.auth!.userId)) throw new HttpError(409, 'This request can no longer be changed.');
