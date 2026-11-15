@@ -10,7 +10,7 @@ import { ForgotPasswordPage, ResetPasswordPage, VerifyEmailPage } from './pages/
 import { JournalPage } from './pages/JournalPage';
 import { CollectionDetailPage, CollectionsPage, SharedCollectionPage } from './pages/CollectionsPage';
 import { DiscoverPage, LibraryPage, TitlePage } from './pages/CatalogPages';
-import { InsightsPage, ProfilePage, SettingsPage } from './pages/AccountPages';
+import { InsightsPage, ProfileActivityPage, ProfilePage, SettingsPage } from './pages/AccountPages';
 
 const GlobalChatPage = lazy(() => import('./pages/ChatPage').then(({ GlobalChatPage: page }) => ({ default: page })));
 const PeoplePage = lazy(() => import('./pages/SocialPages').then(({ PeoplePage: page }) => ({ default: page })));
@@ -80,6 +80,8 @@ export function App() {
     <Route path="/reset-password" element={<ResetPasswordPage />} />
     <Route path="/verify-email" element={<VerifyEmailPage />} />
     <Route path="/u/:username" element={<ProfilePage />} />
+    <Route path="/u/:username/reviews" element={<ProfileActivityPage section="reviews" />} />
+    <Route path="/u/:username/ratings" element={<ProfileActivityPage section="ratings" />} />
     <Route path="/s/:token" element={<SharedCollectionPage />} />
     <Route element={<ProtectedLayout />}>
       <Route element={<AppShell />}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Bell, BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, Palette, Settings, Shield, UserRound, UserSearch, X } from 'lucide-react';
+import { Activity, Bell, BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, Palette, Settings, UserRound, UserSearch, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { apiRequest } from '../lib/api';
@@ -18,10 +18,8 @@ const navigation = [
   { to: '/people', label: 'People', icon: UserSearch },
   { to: '/following', label: 'Following', icon: Activity },
   { to: '/messages', label: 'Messages', icon: MessageCircle },
-  { to: '/notifications', label: 'Notifications', icon: Bell },
-  { to: '/blocked', label: 'Blocked accounts', icon: Shield },
 ];
-const mobileNavigation = navigation.filter(({ to }) => ['/app', '/app/discover', '/app/chat', '/people', '/messages', '/notifications'].includes(to));
+const mobileNavigation = navigation.filter(({ to }) => ['/app', '/app/discover', '/app/chat', '/people', '/messages'].includes(to));
 
 const pageTitles: Record<string, string> = {
   '/app': 'Your journal', '/app/discover': 'Discover', '/app/library': 'The library',
@@ -66,7 +64,7 @@ export function AppShell() {
       <nav className="primary-nav">
         <p className="nav-label">The collection</p>
         {navigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? label : undefined}>
-          <Icon size={18} strokeWidth={1.7} /><span className="nav-link__label">{label}</span>{to === '/notifications' && unreadCount > 0 && <span className="nav-link__count" aria-label={`${unreadCount} unread notifications`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}<span className="nav-link__tip">{label}</span>
+          <Icon size={18} strokeWidth={1.7} /><span className="nav-link__label">{label}</span><span className="nav-link__tip">{label}</span>
         </NavLink>)}
       </nav>
       <div className="sidebar-bottom">
@@ -82,6 +80,7 @@ export function AppShell() {
         <button className="mobile-menu" aria-label="Open navigation" aria-expanded={drawer} aria-controls="primary-navigation" onClick={() => setDrawer(true)}><Menu size={20} /></button>
         <div className="topbar-title"><span className="topbar-kicker">showgraphy</span><span>{title}</span></div>
         <div className="topbar-actions">
+          <NavLink className={({ isActive }) => `topbar-notifications${isActive ? ' is-active' : ''}`} to="/notifications" aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'} title="Notifications"><Bell size={18} />{unreadCount > 0 && <i>{unreadCount > 99 ? '99+' : unreadCount}</i>}</NavLink>
           <NavLink className="topbar-search" to="/app/discover"><Compass size={16} /><span>Find a title</span><kbd>/</kbd></NavLink>
           <Button variant="quiet" className="theme-toggle" onClick={cycle} aria-label={`Current theme: ${preference}. Cycle color theme`} title={`Theme: ${preference}`}>
             <Palette size={17} />
@@ -91,7 +90,7 @@ export function AppShell() {
       </header>
       <main className="app-content"><Outlet /></main>
       <nav className="mobile-nav" aria-label="Mobile navigation">
-        {mobileNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={to === '/notifications' && unreadCount > 0 ? `${label}, ${unreadCount} unread` : label} className={({ isActive }) => `mobile-nav__item${isActive ? ' is-active' : ''}`}><span className="mobile-nav__icon"><Icon size={19} />{to === '/notifications' && unreadCount > 0 && <i>{unreadCount > 9 ? '9+' : unreadCount}</i>}</span><span>{label === 'Global Chat' ? 'Global' : label}</span></NavLink>)}
+        {mobileNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => `mobile-nav__item${isActive ? ' is-active' : ''}`}><span className="mobile-nav__icon"><Icon size={19} /></span><span>{label === 'Global Chat' ? 'Global' : label}</span></NavLink>)}
       </nav>
       <footer className="app-footer"><span>A personal record of what moved you.</span><ProviderCredits /></footer>
     </div>
