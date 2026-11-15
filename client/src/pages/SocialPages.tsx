@@ -63,13 +63,14 @@ function SocialPage({ children }: { children: ReactNode }) { return <main classN
 function FollowingMenu() { const { user } = useAuth(); return <nav className="social-community-nav" aria-label="Following pages"><NavLink to={`/u/${user?.username ?? ""}/following`}>Following</NavLink><NavLink to={`/u/${user?.username ?? ""}/followers`}>Followers</NavLink><NavLink to="/blocked">Blocked accounts</NavLink></nav>; }
 
 export function PeoplePage() {
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [actionError, setActionError] = useState('');
   const client = useQueryClient();
   useEffect(() => { const timer = window.setTimeout(() => setDebounced(search.trim()), 250); return () => window.clearTimeout(timer); }, [search]);
   const query = useInfiniteQuery({ queryKey: ['social', 'people', debounced], initialPageParam: 1, queryFn: ({ pageParam }) => apiRequest<Page<Person>>(`/social/people?q=${encodeURIComponent(debounced)}&page=${pageParam}&limit=${debounced ? 30 : 8}${debounced ? "" : "&random=true"}`), getNextPageParam: (last) => debounced && last.hasMore ? last.page + 1 : undefined });
-  const people = query.data?.pages.flatMap((page) => page.items) ?? [];
+  const people = (query.data?.pages.flatMap((page) => page.items) ?? []).filter((person) => String(person.id ?? person._id ?? '') !== user?.id);
   async function toggle(person: Person) {
     setActionError('');
     try {

@@ -83,7 +83,7 @@ socialRouter.get('/people', route(async (request, response) => {
     ...blocked.map((edge) => String(edge.blocker) === viewerId ? String(edge.blockedUser) : String(edge.blocker)),
     ...followed.map((edge) => String(edge.following)),
   ];
-  const filter: Record<string, unknown> = { _id: { $ne: viewerId, $nin: excluded }, accountStatus: 'active', profileVisibility: 'public' };
+  const filter: Record<string, unknown> = { _id: { $ne: new mongoose.Types.ObjectId(viewerId), $nin: excluded.map((value) => new mongoose.Types.ObjectId(value)) }, accountStatus: 'active', profileVisibility: 'public' };
   if (query) filter.username = { $regex: `^${escaped(query)}` };
   const users = random
     ? await User.aggregate<{ _id: mongoose.Types.ObjectId; username: string; avatar?: string; bio?: string }>([
