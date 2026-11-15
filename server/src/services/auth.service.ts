@@ -17,6 +17,7 @@ type SafeUser = {
   profileVisibility: 'public' | 'private';
   privacySettings: { showStats: boolean; showLists: boolean; showRatings: boolean; showActivity: boolean; showFavorites: boolean; allowMessageRequests: boolean };
   themePreference: 'dark' | 'light' | 'ocean' | 'forest' | 'rose' | 'sunset' | 'ocean-light' | 'sage-light' | 'rose-light' | 'sunset-light' | 'system';
+  textSizePreference: 'small' | 'default' | 'large';
   favoriteTitleIds?: unknown[];
   createdAt: Date;
 };
@@ -33,7 +34,7 @@ function durationMs(value: string): number {
   return amount * units[match[2] as keyof typeof units];
 }
 
-export function safeUser(user: { _id: unknown; username: string; usernameSetupRequired?: boolean; email: string; emailVerified?: boolean; avatar?: string; bio?: string; profileVisibility?: 'public' | 'private'; privacySettings?: SafeUser['privacySettings']; themePreference?: SafeUser['themePreference']; favoriteTitleIds?: unknown[]; createdAt: Date }): SafeUser {
+export function safeUser(user: { _id: unknown; username: string; usernameSetupRequired?: boolean; email: string; emailVerified?: boolean; avatar?: string; bio?: string; profileVisibility?: 'public' | 'private'; privacySettings?: SafeUser['privacySettings']; themePreference?: SafeUser['themePreference']; textSizePreference?: SafeUser['textSizePreference']; favoriteTitleIds?: unknown[]; createdAt: Date }): SafeUser {
   return {
     id: String(user._id),
     username: user.username,
@@ -45,6 +46,7 @@ export function safeUser(user: { _id: unknown; username: string; usernameSetupRe
     profileVisibility: user.profileVisibility ?? 'public',
     privacySettings: user.privacySettings ?? { showStats: true, showLists: true, showRatings: true, showActivity: true, showFavorites: true, allowMessageRequests: true },
     themePreference: user.themePreference ?? 'dark',
+    textSizePreference: user.textSizePreference ?? 'default',
     favoriteTitleIds: (user.favoriteTitleIds ?? []).map(String),
     createdAt: user.createdAt,
   };
