@@ -378,7 +378,7 @@ export function GlobalChatPage() {
             </div>
           </article>
         </Fragment>)}
-        {typingNames.length > 0 && <p className="chat-typing" aria-live="polite">{typingNames.length === 1 ? `@${typingNames[0]} is typing` : `${typingNames.length} people are typing`}<span>•••</span></p>}
+        {typingNames.length > 0 && <p className="chat-typing" aria-live="polite">Someone is typing<span>•••</span></p>}
       </div>
       <form className="chat-composer" onSubmit={sendMessage}>
         <label className="visually-hidden" htmlFor="global-chat-message">Write a message</label>
