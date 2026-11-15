@@ -15,4 +15,5 @@ const libraryEntrySchema = new Schema({
 
 libraryEntrySchema.index({ userId: 1, titleId: 1 }, { unique: true });
 libraryEntrySchema.index({ userId: 1, status: 1, updatedAt: -1 });
+libraryEntrySchema.index({ userId: 1, status: 1, completedAt: -1, updatedAt: -1 });
 export const UserLibraryEntry = model('UserLibraryEntry', libraryEntrySchema);

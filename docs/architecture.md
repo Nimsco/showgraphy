@@ -7,12 +7,13 @@ The root npm workspace contains a Vite React client and an Express 5 TypeScript 
 ## Boundaries
 
 - `server/src/config`: validated environment and Mongo connection.
-- `server/src/models`: durable users, titles, sessions, library entries, lists, shares, ratings, chat messages, and chat reports.
+- `server/src/models`: durable users, titles, sessions, library entries, lists, shares, ratings, chat messages, follows, blocks, conversations, direct messages, notifications, and reports.
 - `server/src/services`: authentication, catalog-provider normalization, list sharing, and aggregate calculations.
 - `server/src/routes`: versioned REST API groups.
-- `server/src/realtime`: socket authentication, ephemeral presence and typing, and live message fan-out.
+- `server/src/realtime`: shared socket authentication, ephemeral Global Chat and private-conversation typing, authorized conversation rooms, and notification fan-out.
 - `client/src/lib`: typed HTTP client and theme/auth integration.
 - `client/src/pages`: landing, authentication, journal, discovery, library, collections, profile, statistics, settings, and Global Chat.
+- `client/src/pages/SocialPages.tsx`: member discovery, connections, following activity, inbox, private conversations, and notifications.
 
 ## Authentication
 
@@ -29,3 +30,7 @@ The client requests paginated resources with TanStack Query. Writes are validate
 ## Global Chat transport
 
 The browser connects directly to the Render web service over WSS; HTTP history and reports continue through the same-origin Vercel `/api` rewrite. Socket authentication uses the access JWT in the Socket.IO auth payload, then checks its session and account in MongoDB. On access expiry, the client uses the existing refresh-cookie API and reconnects. Messages persist before broadcast and duplicate retries use a unique client-message index. Presence, typing, and room fan-out are in-process state, so keep one Render instance until a Socket.IO Redis adapter and shared state are configured.
+
+## Private social transport
+
+Direct messages use the same Render Socket.IO listener and access-token/session checks as Global Chat. Authenticated sockets join a user room for notification delivery; private rooms use `dm:<conversationId>` and are joined only after database participant and block checks. Message requests are pending until accepted. Non-mutual conversations accept exactly one initial request message; both participants can see that preview, but only the recipient can accept or decline. Conversation read cursors are stored per participant. REST fallback sends publish the same private message event so an offline socket does not leave recipients stale. The same single-instance constraint applies to notification and socket fan-out; persistent message, relationship, and notification records remain in MongoDB.

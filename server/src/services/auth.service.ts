@@ -15,7 +15,7 @@ type SafeUser = {
   avatar: string;
   bio: string;
   profileVisibility: 'public' | 'private';
-  privacySettings: { showStats: boolean; showLists: boolean; showRatings: boolean; showActivity: boolean; showFavorites: boolean };
+  privacySettings: { showStats: boolean; showLists: boolean; showRatings: boolean; showActivity: boolean; showFavorites: boolean; allowMessageRequests: boolean };
   themePreference: 'dark' | 'light' | 'ocean' | 'forest' | 'rose' | 'sunset' | 'ocean-light' | 'sage-light' | 'rose-light' | 'sunset-light' | 'system';
   favoriteTitleIds?: unknown[];
   createdAt: Date;
@@ -43,7 +43,7 @@ export function safeUser(user: { _id: unknown; username: string; usernameSetupRe
     avatar: user.avatar ?? '',
     bio: user.bio ?? '',
     profileVisibility: user.profileVisibility ?? 'public',
-    privacySettings: user.privacySettings ?? { showStats: true, showLists: true, showRatings: true, showActivity: true, showFavorites: true },
+    privacySettings: user.privacySettings ?? { showStats: true, showLists: true, showRatings: true, showActivity: true, showFavorites: true, allowMessageRequests: true },
     themePreference: user.themePreference ?? 'dark',
     favoriteTitleIds: (user.favoriteTitleIds ?? []).map(String),
     createdAt: user.createdAt,

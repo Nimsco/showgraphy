@@ -8,4 +8,5 @@ const communityRatingSchema = new Schema({
 
 communityRatingSchema.index({ userId: 1, titleId: 1 }, { unique: true });
 communityRatingSchema.index({ titleId: 1 });
+communityRatingSchema.index({ userId: 1, createdAt: -1 });
 export const CommunityRating = model('CommunityRating', communityRatingSchema);

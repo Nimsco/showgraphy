@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, BarChart3, CalendarDays, Check, Copy, Eye, LockKeyhole, Mail, Monitor, Share2, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, CalendarDays, Check, Copy, Eye, Flag, LockKeyhole, Mail, MessageCircle, Monitor, Share2, Shield, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button, EmptyState, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,12 +11,13 @@ import type { LibraryEntry, Statistics, User as UserType } from '../types';
 type Session = { id: string; current: boolean; userAgent: string; createdAt: string; lastUsedAt: string };
 type ProfileMedia = { _id: string; title: string; poster: string; mediaType: 'movie' | 'series'; releaseDate?: string; communityRating?: number; communityRatingCount?: number };
 type ProfileResult = {
-  profile: { username: string; avatar: string; bio: string; createdAt: string };
+  profile: { username: string; avatar: string; bio: string; createdAt: string; followerCount?: number; followingCount?: number; isFollowing?: boolean; followsYou?: boolean; isOwn?: boolean };
   stats?: Statistics;
   favorites?: ProfileMedia[];
   lists?: Array<{ _id: string; name: string; slug: string; description: string; orderedItems: Array<{ titleId: ProfileMedia }> }>;
   recent?: Array<{ status: string; completedAt?: string; titleId: ProfileMedia }>;
   ratings?: Array<{ rating: number; updatedAt: string; titleId: ProfileMedia }>;
+  reviews?: Array<{ body: string; createdAt: string; titleId: ProfileMedia }>;
 };
 
 const insightCategories = [
@@ -238,7 +239,7 @@ export function SettingsPage() {
   const client = useQueryClient();
   const navigate = useNavigate();
   const [bio, setBio] = useState(user?.bio ?? '');
-  const [privacy, setPrivacy] = useState(user?.privacySettings ?? { showStats: true, showLists: true, showRatings: true, showActivity: true, showFavorites: true });
+  const [privacy, setPrivacy] = useState(user?.privacySettings ?? { showStats: true, showLists: true, showRatings: true, showActivity: true, showFavorites: true, allowMessageRequests: true });
   const [visibility, setVisibility] = useState(user?.profileVisibility ?? 'public');
   const [avatar, setAvatar] = useState('');
   const [favoriteTitleIds, setFavoriteTitleIds] = useState<string[]>(user?.favoriteTitleIds ?? []);
@@ -297,7 +298,7 @@ export function SettingsPage() {
         <Link className="inline-arrow" to={`/u/${user?.username}`}>Preview your profile <ArrowRight size={14} /></Link>
       </div></section>
       <section className="settings-section"><div className="settings-section__intro"><Eye size={19} /><div><h2>What others can see</h2><p>Private profiles are visible only to you. On public profiles, each section can be hidden here.</p></div></div><div className="settings-section__content privacy-toggles">
-        {([{ key: 'showStats', label: 'Viewing statistics', text: 'Totals and category counts' }, { key: 'showLists', label: 'Public collections', text: 'Collections marked public' }, { key: 'showRatings', label: 'Your ratings', text: 'Scores you have submitted' }, { key: 'showActivity', label: 'Recent activity', text: 'Titles marked completed' }, { key: 'showFavorites', label: 'Top 10 titles', text: 'Titles you chose to feature' }] as const).map((item) => <label className="privacy-toggle" key={item.key}><span><strong>{item.label}</strong><small>{item.text}</small></span><input type="checkbox" checked={privacy[item.key]} onChange={(event) => setPrivacy((value) => ({ ...value, [item.key]: event.target.checked }))} /><span className="switch-ui" aria-hidden="true" /></label>)}
+        {([{ key: 'showStats', label: 'Viewing statistics', text: 'Totals and category counts' }, { key: 'showLists', label: 'Public collections', text: 'Collections marked public' }, { key: 'showRatings', label: 'Your ratings', text: 'Scores you have submitted' }, { key: 'showActivity', label: 'Recent activity', text: 'Titles marked completed' }, { key: 'showFavorites', label: 'Top 10 titles', text: 'Titles you chose to feature' }, { key: 'allowMessageRequests', label: 'Message requests', text: 'Allow requests from members you do not mutually follow' }] as const).map((item) => <label className="privacy-toggle" key={item.key}><span><strong>{item.label}</strong><small>{item.text}</small></span><input type="checkbox" checked={privacy[item.key] ?? true} onChange={(event) => setPrivacy((value) => ({ ...value, [item.key]: event.target.checked }))} /><span className="switch-ui" aria-hidden="true" /></label>)}
       </div></section>
       <section className="settings-section"><div className="settings-section__intro"><Monitor size={19} /><div><h2>Appearance</h2><p>Choose a clear light palette or a dark palette with restrained accent colors. Your selection follows this account on your other devices.</p></div></div><fieldset className="settings-section__content theme-picker"><legend className="visually-hidden">Color theme</legend>{themeGroups.map((group) => <div className="theme-group" key={group.label}><h3>{group.label}</h3><div className="theme-group__options">{group.options.map((theme) => <label className={`theme-choice${preference === theme.value ? ' is-selected' : ''}`} key={theme.value} data-theme-swatch={theme.value}><input type="radio" name="themePreference" value={theme.value} checked={preference === theme.value} onChange={() => setPreference(theme.value)} /><span className="theme-choice__palette" aria-hidden="true"><i /><i /><i /></span><span className="theme-choice__label">{theme.label}</span></label>)}</div></div>)}</fieldset></section>
       <div className="settings-save"><span><ShieldCheck size={16} /> Theme saves automatically. Profile and privacy changes save with this button.</span><Button type="submit"><Check size={15} /> Save settings</Button></div>
@@ -316,7 +317,11 @@ export function SettingsPage() {
 export function ProfilePage() {
   const { username = '' } = useParams();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const client = useQueryClient();
   const [copyNotice, setCopyNotice] = useState('');
+  const [socialNotice, setSocialNotice] = useState('');
+  const [socialError, setSocialError] = useState('');
   const ownProfile = user?.username.toLowerCase() === username.toLowerCase();
   const query = useQuery({ queryKey: ['profile', username], queryFn: () => apiRequest<ProfileResult>(`/users/profiles/${encodeURIComponent(username)}`), retry: false });
   async function copyProfileLink() {
@@ -346,17 +351,44 @@ export function ProfilePage() {
   }
   if (query.isLoading) return <div className="page-wrap"><LoadingLine label="Opening profile" /></div>;
   if (query.error || !query.data) return <main className="page-wrap"><EmptyState title="This profile is private or unavailable" description={query.error instanceof Error ? query.error.message : 'Check the profile link, or ask the viewer to make it public.'} action={<Link className="button button--outline" to="/">Go to Showgraphy</Link>} /></main>;
-  const { profile, stats, favorites, lists, recent, ratings } = query.data;
+  const { profile, stats, favorites, lists, recent, ratings, reviews } = query.data;
+  async function toggleFollow() {
+    setSocialError('');
+    try {
+      await apiRequest(`/social/users/${encodeURIComponent(username)}/follow`, { method: profile.isFollowing ? 'DELETE' : 'POST' });
+      await Promise.all([client.invalidateQueries({ queryKey: ['profile', username] }), client.invalidateQueries({ queryKey: ['social'] })]);
+    } catch (cause) { setSocialError(cause instanceof Error ? cause.message : 'The follow change could not be saved.'); }
+  }
+  async function startMessage() {
+    setSocialError('');
+    try {
+      const result = await apiRequest<{ conversation: { _id: string } }>(`/social/conversations/${encodeURIComponent(username)}`, { method: 'POST' });
+      navigate(`/messages/${result.conversation._id}`);
+    } catch (cause) { setSocialError(cause instanceof Error ? cause.message : 'A conversation could not be started.'); }
+  }
+  async function blockProfile() {
+    if (!window.confirm(`Block @${username}? This removes any follow connection and closes your conversations.`)) return;
+    try { await apiRequest(`/social/users/${encodeURIComponent(username)}/block`, { method: 'POST' }); navigate('/people'); }
+    catch (cause) { setSocialError(cause instanceof Error ? cause.message : 'This member could not be blocked.'); }
+  }
+  async function reportProfile() {
+    if (!window.confirm(`Send a report about @${username} to the moderation team?`)) return;
+    try { await apiRequest('/social/reports', { method: 'POST', body: JSON.stringify({ username, reason: 'other' }) }); setSocialNotice('Report received. Thank you for helping keep Showgraphy welcoming.'); setSocialError(''); }
+    catch (cause) { setSocialError(cause instanceof Error ? cause.message : 'The report could not be sent.'); }
+  }
 
   return <main className="profile-page">
     <div className="profile-topbar"><Link to={ownProfile ? '/app' : '/'} className="inline-arrow"><ArrowLeft size={15} /> {ownProfile ? 'Back to your journal' : 'Showgraphy'}</Link>{ownProfile && <div className="profile-topbar__actions">{user?.profileVisibility === 'public' && <><Button type="button" variant="outline" onClick={() => void copyProfileLink()}><Copy size={15} /> Copy profile link</Button>{copyNotice && <span className="profile-copy-status" role="status">{copyNotice}</span>}</>}<Link className="button button--outline" to="/app/settings">Edit profile</Link></div>}</div>
-    <header className="profile-masthead"><div className="profile-avatar">{profile.avatar ? <img src={profile.avatar} alt="" /> : <UserRound size={29} strokeWidth={1.3} />}</div><div><p className="eyebrow">A personal watchline</p><h1>@{profile.username}</h1><p className="profile-handle">Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</p>{profile.bio && <p className="profile-bio">{profile.bio}</p>}</div></header>
+    {socialNotice && <p className="success-banner" role="status">{socialNotice}</p>}{socialError && <p className="form-alert" role="alert">{socialError}</p>}
+    <header id="profile-overview" className="profile-masthead"><div className="profile-avatar">{profile.avatar ? <img src={profile.avatar} alt="" /> : <UserRound size={29} strokeWidth={1.3} />}</div><div><p className="eyebrow">A personal watchline</p><h1>@{profile.username}</h1><p className="profile-handle">Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</p>{profile.bio && <p className="profile-bio">{profile.bio}</p>}<div className="profile-social-counts"><Link to={`/u/${username}/followers`}><strong>{profile.followerCount ?? 0}</strong> followers</Link><Link to={`/u/${username}/following`}><strong>{profile.followingCount ?? 0}</strong> following</Link></div>{!ownProfile && user && <div className="profile-social-actions"><Button onClick={() => void toggleFollow()}>{profile.isFollowing ? 'Following' : 'Follow'}</Button><Button variant="outline" onClick={() => void startMessage()}><MessageCircle size={15} /> Message</Button><Button variant="quiet" onClick={() => void blockProfile()}><Shield size={14} /> Block</Button><Button variant="quiet" onClick={() => void reportProfile()} aria-label={`Report @${username}`}><Flag size={14} /></Button></div>}</div></header>
+    <nav className="profile-social-tabs" aria-label="Profile sections"><a href="#profile-overview">Overview</a>{reviews?.length ? <a href="#profile-reviews">Reviews</a> : null}{ratings?.length ? <a href="#profile-ratings">Ratings</a> : null}{lists?.length ? <a href="#profile-watchlist">Watchlist</a> : null}</nav>
     {stats && <section className="profile-stats"><div><strong>{stats.completed}</strong><span>completed</span></div><div><strong>{stats.movies}</strong><span>films</span></div><div><strong>{stats.series}</strong><span>series</span></div><div><strong>{stats.total}</strong><span>titles in library</span></div></section>}
     {stats && <section className="profile-category-stats" aria-label="Titles by category"><div><p className="eyebrow">Across the library</p><h2>By type</h2><p>Counts include titles at every watch status.</p></div><ul>{insightCategories.map((category) => <li key={category.key}><span>{category.label}</span><strong>{stats.byCategory.find((item) => item.category === category.key)?.count ?? 0}</strong></li>)}</ul></section>}
     {favorites?.length ? <section className="profile-section"><div className="section-topline"><div><p className="eyebrow">Featured by @{profile.username}</p><h2>{profile.username}'s top 10</h2></div></div><div className="media-grid media-grid--compact">{favorites.map((title) => <article className="media-card" key={title._id}><Poster title={title} /><div className="media-card__body"><h3>{title.title}</h3><p className="media-card__meta">{title.releaseDate?.slice(0, 4)} · {title.mediaType}</p></div></article>)}</div></section> : null}
     {recent?.length ? <section className="profile-section"><div className="section-topline"><div><p className="eyebrow">The latest pages</p><h2>Recently completed</h2></div></div><div className="media-grid media-grid--compact">{recent.map((entry, index) => <MediaCard key={`${entry.titleId._id}-${index}`} title={entry.titleId} meta={entry.completedAt ? new Date(entry.completedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : 'Completed'} />)}</div></section> : null}
-    {lists?.length ? <section className="profile-section"><div className="section-topline"><div><p className="eyebrow">Kept together</p><h2>Public collections</h2></div></div><div className="profile-lists">{lists.map((list) => <article key={list._id}><h3>{list.name}</h3><p>{list.description || `${list.orderedItems.length} titles`}</p><span>{list.orderedItems.length} {list.orderedItems.length === 1 ? 'title' : 'titles'}</span></article>)}</div></section> : null}
-    {ratings?.length ? <section className="profile-section"><div className="section-topline"><div><p className="eyebrow">Personal scores</p><h2>Ratings</h2></div></div><div className="rating-history">{ratings.map((entry, index) => <article key={`${entry.titleId._id}-${index}`}><Poster title={entry.titleId} size="small" /><div><h3>{entry.titleId.title}</h3><p>Rated {new Date(entry.updatedAt).toLocaleDateString()}</p></div><strong>{entry.rating.toFixed(2)}<small> / 10</small></strong></article>)}</div></section> : null}
+    {lists?.length ? <section id="profile-watchlist" className="profile-section"><div className="section-topline"><div><p className="eyebrow">Kept together</p><h2>Public collections</h2></div></div><div className="profile-lists">{lists.map((list) => <article key={list._id}><h3>{list.name}</h3><p>{list.description || `${list.orderedItems.length} titles`}</p><span>{list.orderedItems.length} {list.orderedItems.length === 1 ? 'title' : 'titles'}</span></article>)}</div></section> : null}
+    {ratings?.length ? <section id="profile-ratings" className="profile-section"><div className="section-topline"><div><p className="eyebrow">Personal scores</p><h2>Ratings</h2></div></div><div className="rating-history">{ratings.map((entry, index) => <article key={`${entry.titleId._id}-${index}`}><Poster title={entry.titleId} size="small" /><div><h3>{entry.titleId.title}</h3><p>Rated {new Date(entry.updatedAt).toLocaleDateString()}</p></div><strong>{entry.rating.toFixed(2)}<small> / 10</small></strong></article>)}</div></section> : null}
+    {reviews?.length ? <section id="profile-reviews" className="profile-section"><div className="section-topline"><div><p className="eyebrow">Written impressions</p><h2>Reviews</h2></div></div><div className="profile-reviews">{reviews.map((entry, index) => <article key={`${entry.titleId._id}-${index}`}><Link to={`/app/title/${entry.titleId._id}`}><strong>{entry.titleId.title}</strong></Link><p>{entry.body}</p><time>{new Date(entry.createdAt).toLocaleDateString()}</time></article>)}</div></section> : null}
     {!stats && !recent?.length && !lists?.length && <EmptyState title="A watchline takes shape over time" description={`@${profile.username} has not made public sections available yet.`} />}
     <footer className="profile-footer"><span>showgraphy</span><span>A personal record of what moved you.</span></footer>
   </main>;

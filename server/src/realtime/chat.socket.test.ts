@@ -14,11 +14,18 @@ const mocks = vi.hoisted(() => ({
   findChatMessageByClientId: vi.fn(),
   deleteChatMessage: vi.fn(),
   consumeChatMessageQuota: vi.fn(),
+  conversationFindOne: vi.fn(),
+  blockExists: vi.fn(),
+  directMessageFindOne: vi.fn(),
+  directMessageCreate: vi.fn(),
 }));
 
 vi.mock('../models/index.js', () => ({
   RefreshSession: { findOne: mocks.sessionFindOne },
   User: { findById: mocks.userFindById },
+  Conversation: { findOne: mocks.conversationFindOne },
+  Block: { exists: mocks.blockExists },
+  DirectMessage: { findOne: mocks.directMessageFindOne, create: mocks.directMessageCreate },
 }));
 
 vi.mock('../services/chat.service.js', () => ({
@@ -46,6 +53,8 @@ vi.mock('../services/chat.service.js', () => ({
 const secret = process.env.JWT_ACCESS_SECRET!;
 const firstUserId = '507f1f77bcf86cd799439011';
 const secondUserId = '507f1f77bcf86cd799439012';
+const thirdUserId = '507f1f77bcf86cd799439015';
+const conversationId = '507f1f77bcf86cd799439014';
 const origin = 'http://localhost:5173';
 let httpServer: HttpServer;
 let socketServer: import('socket.io').Server;
@@ -114,6 +123,15 @@ function send(client: ClientSocket, payload: unknown) {
   });
 }
 
+function sendDirect(client: ClientSocket, payload: unknown) {
+  return new Promise<{ ok: boolean; code?: string; message?: string }>((resolve, reject) => {
+    client.timeout(2000).emit('dm:send', payload, (error: Error | null, result: { ok: boolean; code?: string; message?: string }) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
+  });
+}
+
 describe('global chat Socket.IO transport', () => {
   beforeAll(async () => {
     const { createChatSocketServer } = await import('./chat.socket.js');
@@ -147,6 +165,15 @@ describe('global chat Socket.IO transport', () => {
     mocks.findChatMessageByClientId.mockResolvedValue(null);
     mocks.deleteChatMessage.mockResolvedValue(null);
     mocks.consumeChatMessageQuota.mockReturnValue(true);
+    const conversation = { _id: conversationId, participants: [firstUserId, secondUserId], status: 'accepted', requestedBy: null, lastMessage: null, lastMessageAt: null, save: vi.fn().mockResolvedValue(undefined) };
+    mocks.conversationFindOne.mockImplementation((filter: { _id?: string; participants?: string }) => {
+      const matches = filter._id === conversationId && [firstUserId, secondUserId].includes(filter.participants ?? '');
+      const query = { select: vi.fn(() => query), lean: vi.fn().mockResolvedValue(matches ? conversation : null), then: (resolve: (value: typeof conversation | null) => void, reject: (reason: unknown) => void) => Promise.resolve(matches ? conversation : null).then(resolve, reject) };
+      return query;
+    });
+    mocks.blockExists.mockResolvedValue(null);
+    mocks.directMessageFindOne.mockResolvedValue(null);
+    mocks.directMessageCreate.mockImplementation(async (input: { conversationId: string; senderId: string; content: string; clientMessageId: string }) => ({ _id: crypto.randomUUID(), ...input, createdAt: new Date() }));
   });
 
   afterEach(async () => {
@@ -192,6 +219,22 @@ describe('global chat Socket.IO transport', () => {
     expect(result).toMatchObject({ ok: true, message: { text: 'Hello, community.', authorId: firstUserId } });
     expect(await incoming).toMatchObject({ text: 'Hello, community.', authorId: firstUserId });
     expect(mocks.createChatMessage).toHaveBeenCalledOnce();
+  });
+
+  it('keeps private messages inside an authorized conversation room', async () => {
+    const sender = makeClient(accessToken());
+    const receiver = makeClient(accessToken(secondUserId));
+    const outsider = makeClient(accessToken(thirdUserId, `session-${thirdUserId}`));
+    await Promise.all([connect(sender), connect(receiver), connect(outsider)]);
+    const join = (client: ClientSocket) => new Promise<{ ok: boolean; message?: string }>((resolve) => client.emit('dm:join', { conversationId }, resolve));
+    expect(await join(sender)).toMatchObject({ ok: true });
+    expect(await join(receiver)).toMatchObject({ ok: true });
+    expect(await join(outsider)).toMatchObject({ ok: false, code: 'NOT_FOUND' });
+    const incoming = waitFor<{ conversationId: string; message: { content: string; senderId: string } }>(receiver, 'dm:message');
+    const result = await sendDirect(sender, { conversationId, clientMessageId: crypto.randomUUID(), content: 'A quiet message.' });
+    expect(result).toMatchObject({ ok: true });
+    expect(await incoming).toMatchObject({ conversationId, message: { content: 'A quiet message.', senderId: firstUserId } });
+    expect(mocks.directMessageCreate).toHaveBeenCalledOnce();
   });
 
   it('counts one user once across multiple tabs and updates on the last disconnect', async () => {

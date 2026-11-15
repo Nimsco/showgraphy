@@ -13,6 +13,13 @@ import { DiscoverPage, LibraryPage, TitlePage } from './pages/CatalogPages';
 import { InsightsPage, ProfilePage, SettingsPage } from './pages/AccountPages';
 
 const GlobalChatPage = lazy(() => import('./pages/ChatPage').then(({ GlobalChatPage: page }) => ({ default: page })));
+const PeoplePage = lazy(() => import('./pages/SocialPages').then(({ PeoplePage: page }) => ({ default: page })));
+const FollowingFeedPage = lazy(() => import('./pages/SocialPages').then(({ FollowingFeedPage: page }) => ({ default: page })));
+const MessagesPage = lazy(() => import('./pages/SocialPages').then(({ MessagesPage: page }) => ({ default: page })));
+const ConversationPage = lazy(() => import('./pages/SocialPages').then(({ ConversationPage: page }) => ({ default: page })));
+const NotificationsPage = lazy(() => import('./pages/SocialPages').then(({ NotificationsPage: page }) => ({ default: page })));
+const BlockedUsersPage = lazy(() => import('./pages/SocialPages').then(({ BlockedUsersPage: page }) => ({ default: page })));
+const ConnectionsPage = lazy(() => import('./pages/SocialPages').then(({ ConnectionsPage: page }) => ({ default: page })));
 
 function ProtectedLayout() {
   const { user, ready, restoreError, retryRestore } = useAuth();
@@ -75,6 +82,17 @@ export function App() {
     <Route path="/u/:username" element={<ProfilePage />} />
     <Route path="/s/:token" element={<SharedCollectionPage />} />
     <Route element={<ProtectedLayout />}>
+      <Route element={<AppShell />}>
+        <Route path="/people" element={<PeoplePage />} />
+        <Route path="/following" element={<FollowingFeedPage />} />
+        <Route path="/messages" element={<MessagesPage />} />
+        <Route path="/messages/requests" element={<MessagesPage requests />} />
+        <Route path="/messages/:conversationId" element={<ConversationPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/blocked" element={<BlockedUsersPage />} />
+        <Route path="/u/:username/followers" element={<ConnectionsPage type="followers" />} />
+        <Route path="/u/:username/following" element={<ConnectionsPage type="following" />} />
+      </Route>
       <Route path="/app" element={<AppShell />}>
         <Route index element={<JournalPage />} />
         <Route path="discover" element={<DiscoverPage />} />
@@ -87,6 +105,7 @@ export function App() {
         <Route path="title/:id" element={<TitlePage />} />
       </Route>
     </Route>
+    <Route path="/profile/:username" element={<ProfilePage />} />
     <Route path="*" element={<MissingPage />} />
   </Routes></Suspense></BrowserRouter>;
 }
