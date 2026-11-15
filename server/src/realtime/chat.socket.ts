@@ -1,10 +1,11 @@
 import type { Server as HttpServer } from 'node:http';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
 import mongoose from 'mongoose';
+import { z } from 'zod';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import { env } from '../config/env.js';
 import { isOriginAllowed } from '../config/origins.js';
-import { RefreshSession, User } from '../models/index.js';
+import { Block, Conversation, DirectMessage, RefreshSession, User } from '../models/index.js';
 import {
   chatSendSchema,
   consumeChatMessageQuota,
@@ -13,6 +14,7 @@ import {
   findChatMessageByClientId,
 } from '../services/chat.service.js';
 import type { ChatAck, ChatMessagePayload } from './chat.types.js';
+import { bindSocialSocket } from './social-events.js';
 
 type ChatUser = {
   userId: string;
@@ -24,16 +26,26 @@ type ChatUser = {
 
 type ChatSocketData = { user: ChatUser; lastTypingEventAt?: number };
 type ActionAck = { ok: true } | { ok: false; code: 'AUTH_REQUIRED' | 'NOT_FOUND' | 'SERVER_ERROR'; message: string };
+type DirectAck = { ok: true; message: Record<string, unknown> } | { ok: false; code: 'AUTH_REQUIRED' | 'NOT_FOUND' | 'RATE_LIMITED' | 'INVALID_MESSAGE' | 'SERVER_ERROR'; message: string };
 type ClientToServerEvents = {
   'chat:send': (payload: unknown, ack: (result: ChatAck) => void) => void;
   'chat:delete': (payload: unknown, ack: (result: ActionAck) => void) => void;
   'chat:typing': (payload: { typing: boolean }) => void;
+  'dm:join': (payload: { conversationId: string }, ack?: (result: ActionAck) => void) => void;
+  'dm:send': (payload: unknown, ack: (result: DirectAck) => void) => void;
+  'dm:typing': (payload: { conversationId: string; typing: boolean }) => void;
+  'dm:read': (payload: { conversationId: string }) => void;
 };
 type ServerToClientEvents = {
   'chat:message': (message: ChatMessagePayload) => void;
   'chat:presence': (payload: { onlineCount: number }) => void;
   'chat:typing': (payload: { username: string; typing: boolean }) => void;
   'chat:auth-expired': () => void;
+  'dm:message': (payload: { conversationId: string; message: Record<string, unknown> }) => void;
+  'dm:typing': (payload: { conversationId: string; username: string; typing: boolean }) => void;
+  'dm:read': (payload: { conversationId: string; userId: string; readAt: string }) => void;
+  'social:notification': (payload: unknown) => void;
+  'dm:presence': (payload: { userIds: string[] }) => void;
 };
 type ChatSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, ChatSocketData>;
 type JwtAccessClaims = JwtPayload & { tokenUse?: string; sid?: string };
@@ -100,11 +112,14 @@ export function createChatSocketServer(httpServer: HttpServer) {
       callback(isOriginAllowed(origin) ? null : 'Origin is not allowed.', isOriginAllowed(origin));
     },
   });
+  bindSocialSocket(io);
 
   const presence = new Map<string, { username: string; avatar: string; socketIds: Set<string> }>();
   const typingSockets = new Map<string, Set<string>>();
   const tokenExpiryTimers = new Map<string, NodeJS.Timeout>();
   const maxTabsPerUser = 5;
+  const typingConversations = new Map<string, Set<string>>();
+  const directSendSchema = z.object({ conversationId: z.string().refine(mongoose.isValidObjectId), clientMessageId: z.string().uuid(), content: z.string().trim().min(1).max(2000) });
 
   io.use((socket, next) => {
     authenticateChatToken(socket.handshake.auth?.token).then((user) => {
@@ -123,6 +138,7 @@ export function createChatSocketServer(httpServer: HttpServer) {
 
   function publishPresence() {
     io.emit('chat:presence', presencePayload(presence));
+    io.emit('dm:presence', { userIds: [...presence.keys()] });
   }
 
   function updateTyping(socket: ChatSocket, isTyping: boolean) {
@@ -162,12 +178,91 @@ export function createChatSocketServer(httpServer: HttpServer) {
       presence.set(user.userId, active);
     }
     active.socketIds.add(socket.id);
+    socket.join(`user:${user.userId}`);
     socket.join('global');
     publishPresence();
 
     const expiryDelay = Math.max(0, user.expiresAt - Date.now());
     const expiryTimer = setTimeout(() => expireSocket(socket), expiryDelay);
     tokenExpiryTimers.set(socket.id, expiryTimer);
+
+    socket.on('dm:join', async ({ conversationId }, ack) => {
+      try {
+        if (!await isSocketSessionActive(socket)) { ack?.({ ok: false, code: 'AUTH_REQUIRED', message: 'Your chat session expired.' }); expireSocket(socket); return; }
+        if (!mongoose.isValidObjectId(conversationId)) { ack?.({ ok: false, code: 'NOT_FOUND', message: 'Conversation not found.' }); return; }
+        const conversation = await Conversation.findOne({ _id: conversationId, participants: user.userId, status: { $in: ['accepted', 'pending'] } }).select('participants').lean();
+        if (!conversation) { ack?.({ ok: false, code: 'NOT_FOUND', message: 'Conversation not found.' }); return; }
+        const other = conversation.participants.find((participant) => String(participant) !== user.userId);
+        if (!other || await Block.exists({ $or: [{ blocker: user.userId, blockedUser: other }, { blocker: other, blockedUser: user.userId }] })) { ack?.({ ok: false, code: 'NOT_FOUND', message: 'Conversation not found.' }); return; }
+        await socket.join(`dm:${conversationId}`);
+        ack?.({ ok: true });
+      } catch (error) {
+        console.warn('[Direct conversation join failed]', { reason: error instanceof Error ? error.name : 'unknown' });
+        ack?.({ ok: false, code: 'SERVER_ERROR', message: 'Conversation could not be opened.' });
+      }
+    });
+
+    socket.on('dm:send', async (payload, ack) => {
+      const parsed = directSendSchema.safeParse(payload);
+      if (!parsed.success) { ack({ ok: false, code: 'INVALID_MESSAGE', message: parsed.error.issues[0]?.message ?? 'That message is invalid.' }); return; }
+      try {
+        if (!await isSocketSessionActive(socket)) { ack({ ok: false, code: 'AUTH_REQUIRED', message: 'Your chat session expired.' }); expireSocket(socket); return; }
+        const { conversationId, clientMessageId, content } = parsed.data;
+        const conversation = await Conversation.findOne({ _id: conversationId, participants: user.userId, status: { $in: ['accepted', 'pending'] } });
+        if (!conversation) { ack({ ok: false, code: 'NOT_FOUND', message: 'Conversation not found.' }); return; }
+        const other = conversation.participants.find((participant) => String(participant) !== user.userId);
+        if (!other || await Block.exists({ $or: [{ blocker: user.userId, blockedUser: other }, { blocker: other, blockedUser: user.userId }] })) { ack({ ok: false, code: 'NOT_FOUND', message: 'Conversation not found.' }); return; }
+        const existing = await DirectMessage.findOne({ senderId: user.userId, clientMessageId });
+        if (existing) {
+          if (String(existing.conversationId) !== conversationId) { ack({ ok: false, code: 'INVALID_MESSAGE', message: 'Message identifier already used.' }); return; }
+          ack({ ok: true, message: { _id: String(existing._id), conversationId: String(existing.conversationId), senderId: user.userId, content: existing.content, clientMessageId, createdAt: existing.createdAt.toISOString() } }); return;
+        }
+        const canStartRequest = conversation.status === 'pending' && String(conversation.requestedBy) === user.userId && !conversation.lastMessage;
+        if (conversation.status !== 'accepted' && !canStartRequest) { ack({ ok: false, code: 'NOT_FOUND', message: 'This message request cannot receive messages yet.' }); return; }
+        if (!consumeChatMessageQuota(user.userId)) { ack({ ok: false, code: 'RATE_LIMITED', message: 'You’re sending messages too quickly. Wait a few seconds and try again.' }); return; }
+        const message = await DirectMessage.create({ conversationId, senderId: user.userId, content, clientMessageId });
+        conversation.lastMessage = message._id;
+        conversation.lastMessageAt = message.createdAt;
+        await conversation.save();
+        const event = { _id: String(message._id), conversationId, senderId: user.userId, content, clientMessageId, createdAt: message.createdAt.toISOString() };
+        await socket.join(`dm:${conversationId}`);
+        io.to(`dm:${conversationId}`).to(`user:${user.userId}`).to(`user:${String(other)}`).emit('dm:message', { conversationId, message: event });
+        ack({ ok: true, message: event });
+      } catch (error) {
+        console.error('[Direct message send failed]', { reason: error instanceof Error ? error.name : 'unknown' });
+        ack({ ok: false, code: 'SERVER_ERROR', message: 'The message could not be saved.' });
+      }
+    });
+
+    socket.on('dm:typing', async ({ conversationId, typing }) => {
+      if (!mongoose.isValidObjectId(conversationId) || typeof typing !== 'boolean') return;
+      const now = Date.now();
+      if (typing && now - (socket.data.lastTypingEventAt ?? 0) < 500) return;
+      if (typing) socket.data.lastTypingEventAt = now;
+      try {
+        if (!await isSocketSessionActive(socket)) { expireSocket(socket); return; }
+        const conversation = await Conversation.findOne({ _id: conversationId, participants: user.userId, status: 'accepted' }).select('participants').lean();
+        if (!conversation) return;
+        const other = conversation.participants.find((participant) => String(participant) !== user.userId);
+        if (!other || await Block.exists({ $or: [{ blocker: user.userId, blockedUser: other }, { blocker: other, blockedUser: user.userId }] })) return;
+        let activeRooms = typingConversations.get(socket.id);
+        if (!activeRooms) { activeRooms = new Set(); typingConversations.set(socket.id, activeRooms); }
+        if (typing) activeRooms.add(conversationId); else activeRooms.delete(conversationId);
+        socket.to(`dm:${conversationId}`).emit('dm:typing', { conversationId, username: user.username, typing });
+      } catch { /* Typing is ephemeral; a transient check failure should not interrupt messages. */ }
+    });
+
+    socket.on('dm:read', async ({ conversationId }) => {
+      if (!mongoose.isValidObjectId(conversationId)) return;
+      try {
+        if (!await isSocketSessionActive(socket)) { expireSocket(socket); return; }
+        const conversation = await Conversation.findOne({ _id: conversationId, participants: user.userId, status: 'accepted' });
+        if (!conversation) return;
+        const readAt = new Date();
+        await Conversation.updateOne({ _id: conversation._id }, { $set: { 'participantState.$[state].lastReadAt': readAt } }, { arrayFilters: [{ 'state.userId': user.userId }] });
+        io.to(`dm:${conversationId}`).to(`user:${user.userId}`).to(`user:${String(conversation.participants.find((participant) => String(participant) !== user.userId))}`).emit('dm:read', { conversationId, userId: user.userId, readAt: readAt.toISOString() });
+      } catch { /* The REST read endpoint remains available as a fallback. */ }
+    });
 
     socket.on('chat:send', async (payload, ack) => {
       const parsed = chatSendSchema.safeParse(payload);
@@ -239,6 +334,9 @@ export function createChatSocketServer(httpServer: HttpServer) {
       if (timer) clearTimeout(timer);
       tokenExpiryTimers.delete(socket.id);
       updateTyping(socket, false);
+      const directRooms = typingConversations.get(socket.id);
+      directRooms?.forEach((conversationId) => socket.to(`dm:${conversationId}`).emit('dm:typing', { conversationId, username: user.username, typing: false }));
+      typingConversations.delete(socket.id);
       const current = presence.get(user.userId);
       current?.socketIds.delete(socket.id);
       if (current && current.socketIds.size === 0) presence.delete(user.userId);

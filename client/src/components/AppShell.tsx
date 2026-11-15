@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, Palette, Settings, UserRound, X } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Activity, Bell, BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, Palette, Settings, Shield, UserRound, UserSearch, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { apiRequest } from '../lib/api';
 import { Logo, Button } from './ui';
 import { ProviderCredits } from './ProviderCredits';
 
@@ -13,11 +15,18 @@ const navigation = [
   { to: '/app/collections', label: 'Collections', icon: ListMusic },
   { to: '/app/insights', label: 'Insights', icon: ChartNoAxesCombined },
   { to: '/app/chat', label: 'Global Chat', icon: MessageCircle },
+  { to: '/people', label: 'People', icon: UserSearch },
+  { to: '/following', label: 'Following', icon: Activity },
+  { to: '/messages', label: 'Messages', icon: MessageCircle },
+  { to: '/notifications', label: 'Notifications', icon: Bell },
+  { to: '/blocked', label: 'Blocked accounts', icon: Shield },
 ];
+const mobileNavigation = navigation.filter(({ to }) => ['/app', '/app/discover', '/app/chat', '/people', '/messages', '/notifications'].includes(to));
 
 const pageTitles: Record<string, string> = {
   '/app': 'Your journal', '/app/discover': 'Discover', '/app/library': 'The library',
   '/app/collections': 'Collections', '/app/insights': 'Insights', '/app/chat': 'Global Chat', '/app/settings': 'Account settings',
+  '/people': 'Discover people', '/following': 'Following', '/messages': 'Messages', '/notifications': 'Notifications', '/blocked': 'Blocked accounts',
 };
 
 export function AppShell() {
@@ -27,7 +36,15 @@ export function AppShell() {
   const navigate = useNavigate();
   const [rail, setRail] = useState(false);
   const [drawer, setDrawer] = useState(false);
-  const title = pageTitles[location.pathname] || (location.pathname.includes('/title/') ? 'Title details' : location.pathname.includes('/collections/') ? 'A collection' : 'Showgraphy');
+  const notifications = useQuery({
+    queryKey: ['social', 'notifications', 'badge'],
+    queryFn: () => apiRequest<{ unreadCount: number }>('/social/notifications?page=1&limit=1'),
+    enabled: Boolean(user?.id),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+  const unreadCount = notifications.data?.unreadCount ?? 0;
+  const title = pageTitles[location.pathname] || (location.pathname.startsWith('/messages/') ? 'Messages' : location.pathname.includes('/title/') ? 'Title details' : location.pathname.includes('/collections/') ? 'A collection' : 'Showgraphy');
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -41,7 +58,7 @@ export function AppShell() {
     return () => window.removeEventListener('keydown', keydown);
   }, []);
 
-  return <div className={`app-frame ${rail ? 'app-frame--rail' : ''} ${drawer ? 'app-frame--drawer' : ''}${location.pathname === '/app/chat' ? ' app-frame--chat' : ''}`}>
+  return <div className={`app-frame ${rail ? 'app-frame--rail' : ''} ${drawer ? 'app-frame--drawer' : ''}${location.pathname === '/app/chat' ? ' app-frame--chat' : ''}${location.pathname.startsWith('/messages/') && location.pathname !== '/messages/requests' ? ' app-frame--conversation' : ''}`}>
     {drawer && <button className="drawer-scrim" aria-label="Close navigation" onClick={() => setDrawer(false)} />}
     <aside className="app-sidebar" id="primary-navigation" aria-label="Primary navigation">
       <div className="sidebar-brand"><NavLink to="/app" aria-label="Showgraphy journal"><Logo compact={rail} /></NavLink><button className="sidebar-close" aria-label="Close navigation" onClick={() => setDrawer(false)}><X size={18} /></button></div>
@@ -49,7 +66,7 @@ export function AppShell() {
       <nav className="primary-nav">
         <p className="nav-label">The collection</p>
         {navigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? label : undefined}>
-          <Icon size={18} strokeWidth={1.7} /><span className="nav-link__label">{label}</span><span className="nav-link__tip">{label}</span>
+          <Icon size={18} strokeWidth={1.7} /><span className="nav-link__label">{label}</span>{to === '/notifications' && unreadCount > 0 && <span className="nav-link__count" aria-label={`${unreadCount} unread notifications`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}<span className="nav-link__tip">{label}</span>
         </NavLink>)}
       </nav>
       <div className="sidebar-bottom">
@@ -74,7 +91,7 @@ export function AppShell() {
       </header>
       <main className="app-content"><Outlet /></main>
       <nav className="mobile-nav" aria-label="Mobile navigation">
-        {navigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label} className={({ isActive }) => `mobile-nav__item${isActive ? ' is-active' : ''}`}><Icon size={19} /><span>{label}</span></NavLink>)}
+        {mobileNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={to === '/notifications' && unreadCount > 0 ? `${label}, ${unreadCount} unread` : label} className={({ isActive }) => `mobile-nav__item${isActive ? ' is-active' : ''}`}><span className="mobile-nav__icon"><Icon size={19} />{to === '/notifications' && unreadCount > 0 && <i>{unreadCount > 9 ? '9+' : unreadCount}</i>}</span><span>{label === 'Global Chat' ? 'Global' : label}</span></NavLink>)}
       </nav>
       <footer className="app-footer"><span>A personal record of what moved you.</span><ProviderCredits /></footer>
     </div>

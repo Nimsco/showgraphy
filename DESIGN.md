@@ -54,3 +54,9 @@ Sources: [Paper & Ink](https://www.designlounge.live/themes/paper-ink) for a rea
 ## Global Chat
 
 Global Chat extends the Archival Journal system with a chronological message log, grouped sender rows, and a compact composer. The chat fills the app workspace; the title stays in the app bar, while presence and connection status share one short toolbar. Keep the composer anchored at the bottom and let messages use the available height. Incoming and outgoing messages use existing surface and primary-soft tokens; user text remains plain text. The layout takes cues from the user's Stitch screen “Showgraphy - Global Chat (Minimalist Redesign)” and the [Chat thread](https://www.designlounge.live/demo/chat-thread), using the app's existing typography, colors, and controls.
+
+## Social networking extension
+
+The people, activity, inbox, notifications, and private-thread screens use the same Showgraphy tokens and compact archival hierarchy. Keep Global Chat a separate destination. Private messages align incoming content to the left and outgoing content to the right, with a compact bottom composer. Typing presence is a single “Someone is typing” message when any other member is composing. Avoid extra outlines around message fields and rows; preserve a clear keyboard focus state.
+
+Sources: [Showgraphy Stitch project](https://stitch.withgoogle.com/projects/4332847054380189031), screens “Discover People,” “Following Activity Feed,” “Messages Inbox,” “Private Conversation,” and “Notifications”; [Chat thread](https://www.designlounge.live/demo/chat-thread).

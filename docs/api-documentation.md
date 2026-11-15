@@ -32,6 +32,23 @@ Base path: `/api`. JSON errors use `{ "message": "..." }`. Authenticated routes 
 - `PATCH /users/me`: profile, privacy, and theme preference update.
 - `GET /stats`: current user's privacy-aware statistics.
 
+## Social community
+
+All `/social` routes require an access token.
+
+- `GET /social/people?q=&page=&limit=` searches usernames or returns recent public members; blocked users and private profiles are excluded.
+- `POST /social/users/:username/follow`, `DELETE /social/users/:username/follow`; `GET /social/users/:username/status` returns server-derived counts and relationship state.
+- `GET /social/users/:username/followers|following|mutual?page=&limit=` returns paginated public connections.
+- `POST /social/users/:username/block`, `DELETE /social/users/:username/block`; `GET /social/blocks` lists blocked members.
+- `GET /social/feed?page=&limit=` combines completed titles, reviews, and ratings from followed members while applying each member's activity privacy settings.
+- `GET /social/notifications?page=&limit=&unread=` returns notifications and the unread count; `PATCH /social/notifications/:id/read` and `PATCH /social/notifications/read-all` update read state.
+- `GET /social/conversations?page=&limit=&requests=` returns the inbox or received requests; `POST /social/conversations/:username` creates or returns a unique participant pair.
+- `GET /social/conversations/:conversationId` returns the authorized other participant and request state.
+- `GET /social/conversations/:conversationId/messages?limit=&before=` returns authorized history; `POST /social/conversations/:conversationId/messages` sends idempotent, rate-limited text messages and emits the same real-time event when socket transport is unavailable; `PATCH /social/conversations/:conversationId/{accept|decline|read}` handles requests and read state.
+- `POST /social/reports` reports a member or a message in a conversation.
+
+The same Render Socket.IO process authenticates private messaging with the existing short-lived access token. Client events are `dm:join`, `dm:send`, `dm:typing`, and `dm:read`; server events are `dm:message`, `dm:typing`, `dm:read`, and `social:notification`. Direct messages use private conversation rooms and re-check participant/block state before joining and sending.
+
 ## Global Chat
 
 - `GET /chat/messages?limit=50&before=<messageId>` returns the latest messages or the older page before a message cursor. `after=<messageId>` returns newer messages for reconnect catch-up. Limits are 1-100 and results are ordered oldest-first.
@@ -40,4 +57,4 @@ Base path: `/api`. JSON errors use `{ "message": "..." }`. Authenticated routes 
 - Client events: `chat:send` (acknowledged, idempotent client UUID), `chat:delete` (owner-only), and `chat:typing` (ephemeral).
 - Server events: `chat:message` (new or deleted message), `chat:presence` (unique online-user count), `chat:typing`, and `chat:auth-expired`.
 
-Pagination responses include `items`, `page`, `limit`, and `total`.
+Catalog and library responses include their resource totals. Social pages return `items`, `page`, and `hasMore`; message history uses `items` and `hasMore` with a message cursor.

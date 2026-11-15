@@ -6,6 +6,7 @@ const privacySchema = new Schema({
   showRatings: { type: Boolean, default: true },
   showActivity: { type: Boolean, default: true },
   showFavorites: { type: Boolean, default: true },
+  allowMessageRequests: { type: Boolean, default: true },
 }, { _id: false });
 
 const userSchema = new Schema({

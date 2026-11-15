@@ -12,6 +12,7 @@ import { libraryRouter, statsRouter } from './routes/library.routes.js';
 import { listsRouter, sharesRouter } from './routes/lists.routes.js';
 import { usersRouter } from './routes/user.routes.js';
 import { chatRouter } from './routes/chat.routes.js';
+import { socialRouter } from './routes/social.routes.js';
 import { errorHandler } from './utils/http.js';
 
 export const app = express();
@@ -61,6 +62,7 @@ app.use('/api/lists', listsRouter);
 app.use('/api/shares', sharesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/chat', chatRouter);
+app.use('/api/social', socialRouter);
 app.use('/api/stats', statsRouter);
 
 app.use(errorHandler);

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { z } from 'zod';
 import { authenticate, authenticateOptional } from '../middleware/authenticate.js';
-import { CommunityRating, EmailActionToken, ListShare, MediaTitle, RefreshSession, User, UserLibraryEntry, UserList } from '../models/index.js';
+import { Block, CommunityRating, Conversation, DirectMessage, EmailActionToken, Follow, ListShare, MediaTitle, Notification, RefreshSession, SocialReport, TitleReview, User, UserLibraryEntry, UserList } from '../models/index.js';
 import { clearRefreshCookie, safeUser } from '../services/auth.service.js';
 import { getUserStatistics } from '../services/statistics.service.js';
 import { HttpError, route } from '../utils/http.js';
@@ -41,7 +41,7 @@ usersRouter.patch('/me', authenticate, route(async (request, response) => {
     avatar: z.url().or(z.literal('')).optional(),
     profileVisibility: z.enum(['public', 'private']).optional(),
     themePreference: z.enum(['dark', 'light', 'ocean', 'forest', 'rose', 'sunset', 'ocean-light', 'sage-light', 'rose-light', 'sunset-light', 'system']).optional(),
-    privacySettings: z.object({ showStats: z.boolean().optional(), showLists: z.boolean().optional(), showRatings: z.boolean().optional(), showActivity: z.boolean().optional(), showFavorites: z.boolean().optional() }).optional(),
+    privacySettings: z.object({ showStats: z.boolean().optional(), showLists: z.boolean().optional(), showRatings: z.boolean().optional(), showActivity: z.boolean().optional(), showFavorites: z.boolean().optional(), allowMessageRequests: z.boolean().optional() }).optional(),
     favoriteTitleIds: z.array(z.string().refine(mongoose.isValidObjectId)).max(10).optional(),
   }).parse(request.body);
   const user = await User.findById(request.auth!.userId);
@@ -69,9 +69,15 @@ usersRouter.patch('/me', authenticate, route(async (request, response) => {
 usersRouter.get('/profiles/:username', authenticateOptional, route(async (request, response) => {
   const username = String(request.params.username).toLowerCase();
   const user = await User.findOne({ username }).select('username avatar bio profileVisibility privacySettings favoriteTitleIds createdAt').lean();
-  if (!user || (user.profileVisibility === 'private' && String(request.auth!.userId) !== String(user._id))) throw new HttpError(404, 'Profile not found.');
+  if (!user || (user.profileVisibility === 'private' && (!request.auth?.userId || String(request.auth.userId) !== String(user._id)))) throw new HttpError(404, 'Profile not found.');
+  if (request.auth?.userId && String(request.auth.userId) !== String(user._id) && await Block.exists({ $or: [{ blocker: request.auth.userId, blockedUser: user._id }, { blocker: user._id, blockedUser: request.auth.userId }] })) throw new HttpError(404, 'Profile not found.');
+  const [followerCount, followingCount, followsYou, isFollowing] = await Promise.all([
+    Follow.countDocuments({ following: user._id }), Follow.countDocuments({ follower: user._id }),
+    request.auth?.userId ? Follow.exists({ follower: user._id, following: request.auth.userId }) : Promise.resolve(false),
+    request.auth?.userId ? Follow.exists({ follower: request.auth.userId, following: user._id }) : Promise.resolve(false),
+  ]);
   const result: Record<string, unknown> = {
-    profile: { username: user.username, avatar: user.avatar, bio: user.bio, createdAt: user.createdAt },
+    profile: { username: user.username, avatar: user.avatar, bio: user.bio, createdAt: user.createdAt, followerCount, followingCount, followsYou: Boolean(followsYou), isFollowing: Boolean(isFollowing), isOwn: Boolean(request.auth?.userId && String(request.auth.userId) === String(user._id)) },
   };
   if (user.privacySettings?.showFavorites !== false) {
     const titles = await MediaTitle.find({ _id: { $in: user.favoriteTitleIds ?? [] } }).select('title poster backdrop mediaType releaseDate').lean();
@@ -88,11 +94,16 @@ usersRouter.get('/profiles/:username', authenticateOptional, route(async (reques
   if (user.privacySettings?.showRatings !== false) {
     result.ratings = await CommunityRating.find({ userId: user._id }).sort({ updatedAt: -1 }).limit(12).select('rating updatedAt').populate('titleId', 'title poster mediaType releaseDate').lean();
   }
+  if (user.privacySettings?.showActivity !== false) {
+    result.reviews = await TitleReview.find({ userId: user._id }).sort({ createdAt: -1 }).limit(8).select('body createdAt').populate('titleId', 'title poster mediaType releaseDate').lean();
+  }
   response.json(result);
 }));
 
 usersRouter.delete('/me', authenticate, route(async (request, response) => {
   const userId = request.auth!.userId;
+  const conversations = await Conversation.find({ participants: userId }).select('_id').lean();
+  const conversationIds = conversations.map((conversation) => conversation._id);
   const ratings = await CommunityRating.find({ userId }).select('titleId').lean();
   const affected = [...new Set(ratings.map((rating) => String(rating.titleId)))];
   await Promise.all([
@@ -100,7 +111,15 @@ usersRouter.delete('/me', authenticate, route(async (request, response) => {
     UserList.deleteMany({ userId }),
     UserLibraryEntry.deleteMany({ userId }),
     CommunityRating.deleteMany({ userId }),
+    TitleReview.deleteMany({ userId }),
     EmailActionToken.deleteMany({ userId }),
+    Follow.deleteMany({ $or: [{ follower: userId }, { following: userId }] }),
+    Block.deleteMany({ $or: [{ blocker: userId }, { blockedUser: userId }] }),
+    Notification.deleteMany({ $or: [{ recipient: userId }, { actor: userId }] }),
+    SocialReport.deleteMany({ $or: [{ reporter: userId }, { reportedUser: userId }] }),
+    Conversation.deleteMany({ participants: userId }),
+    DirectMessage.deleteMany({ senderId: userId }),
+    DirectMessage.deleteMany({ conversationId: { $in: conversationIds } }),
     RefreshSession.deleteMany({ userId }),
     User.deleteOne({ _id: userId }),
   ]);

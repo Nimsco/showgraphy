@@ -21,7 +21,7 @@ describe('account security helpers', () => {
       _id: 'abc123', username: 'viewer', email: 'viewer@example.com', createdAt: new Date('2026-01-01'),
     });
     expect(user).toMatchObject({ id: 'abc123', username: 'viewer', profileVisibility: 'public', themePreference: 'dark' });
-    expect(user.privacySettings).toEqual({ showStats: true, showLists: true, showRatings: true, showActivity: true, showFavorites: true });
+    expect(user.privacySettings).toEqual({ showStats: true, showLists: true, showRatings: true, showActivity: true, showFavorites: true, allowMessageRequests: true });
     expect(user).not.toHaveProperty('passwordHash');
   });
 });

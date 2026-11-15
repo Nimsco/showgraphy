@@ -10,7 +10,7 @@ export interface User {
   avatar: string;
   bio: string;
   profileVisibility: 'public' | 'private';
-  privacySettings: { showStats: boolean; showLists: boolean; showRatings: boolean; showActivity: boolean; showFavorites: boolean };
+  privacySettings: { showStats: boolean; showLists: boolean; showRatings: boolean; showActivity: boolean; showFavorites: boolean; allowMessageRequests: boolean };
   themePreference: ThemePreference;
   favoriteTitleIds?: string[];
   createdAt: string;
