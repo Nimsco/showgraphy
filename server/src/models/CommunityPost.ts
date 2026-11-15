@@ -1,3 +1,4 @@
+import { COMMUNITY_CATEGORIES } from '../constants/community-categories.js';
 import { Schema, model } from 'mongoose';
 
 const referenceSchema = new Schema({
@@ -28,6 +29,7 @@ const postSchema = new Schema({
   author: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   title: { type: String, trim: true, required: true, minlength: 1, maxlength: 180 },
   content: { type: String, trim: true, maxlength: 4000, default: '' },
+  categories: { type: [String], enum: COMMUNITY_CATEGORIES, default: ['general'] },
   category: { type: String, enum: ['discussion', 'question', 'recommendation', 'general'], default: 'general' },
   mediaReferences: { type: [referenceSchema], default: [] },
   images: { type: [imageSchema], default: [] },
@@ -45,6 +47,7 @@ const postSchema = new Schema({
 
 postSchema.index({ createdAt: -1, _id: -1 });
 postSchema.index({ author: 1, createdAt: -1 });
+postSchema.index({ categories: 1, createdAt: -1 });
 postSchema.index({ 'mediaReferences.titleId': 1, createdAt: -1 });
 postSchema.index({ 'images.publicId': 1 }, { unique: true, sparse: true });
 postSchema.index({ content: 'text' });
