@@ -367,14 +367,15 @@ socialRouter.patch('/conversations/:conversationId/messages/:messageId', route(a
   const otherId = String(conversation.participants.find((participant) => String(participant) !== userId));
   if (!otherId || await blockedEither(userId, otherId)) throw new HttpError(404, 'Message not found.');
   const content = z.string().trim().min(1).max(2000).parse(request.body?.content);
-  const message = await DirectMessage.findOne({ _id: messageId, conversationId: conversation._id, senderId: userId, deletedAt: null });
+  const message = await DirectMessage.findOneAndUpdate(
+    { _id: messageId, conversationId: conversation._id, senderId: userId, deletedAt: null },
+    { $set: { content, editedAt: new Date() } },
+    { new: true, runValidators: true },
+  );
   if (!message) throw new HttpError(404, 'Your message could not be found.');
-  message.content = content;
-  message.editedAt = new Date();
-  await message.save();
-  const event = { _id: String(message._id), conversationId: String(conversation._id), senderId: userId, content, clientMessageId: message.clientMessageId, createdAt: message.createdAt.toISOString(), editedAt: message.editedAt.toISOString() };
+  const event = { _id: String(message._id), conversationId: String(conversation._id), senderId: userId, content, clientMessageId: message.clientMessageId, createdAt: message.createdAt.toISOString(), editedAt: message.editedAt?.toISOString() ?? new Date().toISOString() };
   emitDirectMessage(String(conversation._id), conversation.participants.map(String), event);
-  response.json({ message: await message.populate('senderId', 'username avatar') });
+  response.json({ message });
 }));
 socialRouter.delete('/conversations/:conversationId/messages/:messageId', route(async (request, response) => {
   const userId = String(request.auth!.userId);
