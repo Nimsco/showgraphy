@@ -75,14 +75,23 @@ async function publicUserRows(users: Array<{ _id: unknown; username: string; ava
 socialRouter.get('/people', route(async (request, response) => {
   const { page, limit, skip } = pageParams(request.query as Record<string, unknown>);
   const query = z.string().trim().max(50).parse(request.query.q ?? '');
+  const random = request.query.random === 'true' && !query;
   const viewerId = String(request.auth!.userId);
   const blocked = await Block.find({ $or: [{ blocker: viewerId }, { blockedUser: viewerId }] }).select('blocker blockedUser').lean();
-  const excluded = blocked.map((edge) => String(edge.blocker) === viewerId ? String(edge.blockedUser) : String(edge.blocker));
+  const followed = random ? await Follow.find({ follower: viewerId }).select('following').lean() : [];
+  const excluded = [
+    ...blocked.map((edge) => String(edge.blocker) === viewerId ? String(edge.blockedUser) : String(edge.blocker)),
+    ...followed.map((edge) => String(edge.following)),
+  ];
   const filter: Record<string, unknown> = { _id: { $ne: viewerId, $nin: excluded }, accountStatus: 'active', profileVisibility: 'public' };
   if (query) filter.username = { $regex: `^${escaped(query)}` };
-  const users = await User.find(filter).select('_id username avatar bio').sort(query ? { username: 1 } : { createdAt: -1 }).skip(skip).limit(limit).lean();
+  const users = random
+    ? await User.aggregate<{ _id: mongoose.Types.ObjectId; username: string; avatar?: string; bio?: string }>([
+      { $match: filter }, { $sample: { size: limit } }, { $project: { _id: 1, username: 1, avatar: 1, bio: 1 } },
+    ])
+    : await User.find(filter).select('_id username avatar bio').sort(query ? { username: 1 } : { createdAt: -1 }).skip(skip).limit(limit).lean();
   const items = await publicUserRows(users, viewerId);
-  response.json({ items, page, hasMore: users.length === limit });
+  response.json({ items, page, hasMore: !random && users.length === limit });
 }));
 
 socialRouter.get('/users/:username/mutual', route(async (request, response) => {

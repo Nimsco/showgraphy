@@ -19,6 +19,8 @@ const statuses: Array<{ value: WatchStatus; label: string }> = [
 ];
 
 function titlePath(title: MediaTitle) { return `/app/title/${title._id}`; }
+function ratingChoice(value: number | null | undefined) { return value == null ? '' : (Math.round(Math.min(10, Math.max(1, value)) * 2) / 2).toFixed(1); }
+const ratingOptions = Array.from({ length: 19 }, (_, index) => (1 + index * 0.5).toFixed(1));
 
 function PageControls({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (page: number) => void }) {
   if (totalPages <= 1) return null;
@@ -216,7 +218,7 @@ export function TitlePage() {
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
   const [collectionPicker, setCollectionPicker] = useState(false);
   const collections = useQuery({ queryKey: ['lists'], queryFn: () => apiRequest<{ items: UserList[] }>('/lists'), enabled: collectionPicker });
-  useEffect(() => { setRating(detail.data?.myCommunityRating == null ? '' : detail.data.myCommunityRating.toFixed(2)); }, [detail.data?.myCommunityRating]);
+  useEffect(() => { setRating(ratingChoice(detail.data?.myCommunityRating)); }, [detail.data?.myCommunityRating]);
 
   if (detail.isLoading) return <div className="page-wrap"><LoadingLine label="Opening title details" /></div>;
   if (detail.error || !detail.data) return <div className="page-wrap"><EmptyState title="Title not found" description={detail.error instanceof Error ? detail.error.message : 'This title may have been removed.'} action={<Link className="button button--outline" to="/app/discover"><ArrowLeft size={15} /> Back to discover</Link>} /></div>;
@@ -236,7 +238,7 @@ export function TitlePage() {
   }
   async function saveRating(nextRating: string, force = false) {
     if (!nextRating || ratingSaving || (!force && nextRating === rating)) return;
-    const previousRating = detail.data?.myCommunityRating == null ? '' : String(detail.data.myCommunityRating);
+    const previousRating = ratingChoice(detail.data?.myCommunityRating);
     setRating(nextRating);
     setRatingSaving(true);
     try {
@@ -320,7 +322,7 @@ export function TitlePage() {
           <article className="rating-panel"><p className="eyebrow">TMDB</p>{item.tmdbRating != null ? <strong>{item.tmdbRating.toFixed(1)}<small> / 10</small></strong> : <p>No TMDB score available.</p>}<span>{item.tmdbVoteCount ? `${item.tmdbVoteCount.toLocaleString()} votes` : 'The Movie Database'}</span></article>
           <article className="rating-panel"><p className="eyebrow">AniList</p>{item.anilistAverageScore != null ? <strong>{item.anilistAverageScore}<small> / 100</small></strong> : <p>No AniList score available.</p>}<span>{[item.anilistMeanScore != null ? `Mean ${item.anilistMeanScore}/100` : '', item.anilistPopularity != null ? `${item.anilistPopularity.toLocaleString()} tracking` : ''].filter(Boolean).join(' · ') || 'Anime community score'}</span></article>
           <article className="rating-panel"><p className="eyebrow">Showgraphy community</p>{item.communityRatingCount ? <strong>{item.communityRating?.toFixed(2)}<small> / 10</small></strong> : <p>No community ratings yet.</p>}<span>{item.communityRatingCount ? `${item.communityRatingCount.toLocaleString()} ${item.communityRatingCount === 1 ? 'rating' : 'ratings'}` : 'Your rating can start the conversation.'}</span></article>
-          <article className="rating-panel rating-panel--yours"><p className="eyebrow">Your rating</p><div className="rating-picker"><Star size={17} aria-hidden="true" /><label className="visually-hidden" htmlFor="your-rating">Choose a rating from 1.00 to 10.00</label><input id="your-rating" type="number" min="1" max="10" step="0.01" inputMode="decimal" placeholder="1.00–10.00" value={rating} disabled={ratingSaving} onChange={(event) => setRating(event.target.value)} onBlur={() => rating.trim() ? void saveRating(rating, true) : setRating(detail.data.myCommunityRating?.toFixed(2) ?? '')} aria-describedby="rating-save-status" /></div><span className="rating-save-status" id="rating-save-status" role="status">{ratingSaving ? 'Saving rating…' : rating ? 'Saved automatically, to two decimal places' : 'Choose a score from 1.00 to 10.00'}</span>{detail.data.myCommunityRating != null && <button type="button" className="text-button" disabled={ratingSaving} onClick={() => void removeRating()}>Remove your rating</button>}</article>
+          <article className="rating-panel rating-panel--yours"><p className="eyebrow">Your rating</p><div className="rating-picker"><Star size={17} aria-hidden="true" /><label className="visually-hidden" htmlFor="your-rating">Choose your rating from 1 to 10 in half-point steps</label><select id="your-rating" className="rating-select" value={rating} disabled={ratingSaving} onChange={(event) => { setRating(event.target.value); void saveRating(event.target.value, true); }} aria-describedby="rating-save-status"><option value="">Select</option>{ratingOptions.map((value) => <option value={value} key={value}>{value}</option>)}</select></div><span className="rating-save-status" id="rating-save-status" role="status">{ratingSaving ? 'Saving rating…' : rating ? `Your rating: ${Number(rating).toFixed(1)} / 10` : 'Choose a score from 1 to 10 in half-point steps'}</span>{detail.data.myCommunityRating != null && <button type="button" className="text-button" disabled={ratingSaving} onClick={() => void removeRating()}>Remove your rating</button>}</article>
         </div>
       </section>
       <section className="title-reviews" aria-labelledby="reviews-heading">
