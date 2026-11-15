@@ -22,6 +22,7 @@ const userSchema = new Schema({
   profileVisibility: { type: String, enum: ['public', 'private'], default: 'public' },
   privacySettings: { type: privacySchema, default: () => ({}) },
   themePreference: { type: String, enum: ['dark', 'light', 'ocean', 'forest', 'rose', 'sunset', 'ocean-light', 'sage-light', 'rose-light', 'sunset-light', 'system'], default: 'dark' },
+  textSizePreference: { type: String, enum: ['small', 'default', 'large'], default: 'default' },
   favoriteTitleIds: [{ type: Schema.Types.ObjectId, ref: 'MediaTitle' }],
 }, { timestamps: true, versionKey: false });
 

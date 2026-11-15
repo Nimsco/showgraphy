@@ -1,4 +1,5 @@
 export type ThemePreference = 'dark' | 'light' | 'ocean' | 'forest' | 'rose' | 'sunset' | 'ocean-light' | 'sage-light' | 'rose-light' | 'sunset-light' | 'system';
+export type TextSizePreference = 'small' | 'default' | 'large';
 export type WatchStatus = 'completed' | 'watching' | 'planned' | 'on-hold' | 'dropped';
 
 export interface User {
@@ -12,6 +13,7 @@ export interface User {
   profileVisibility: 'public' | 'private';
   privacySettings: { showStats: boolean; showLists: boolean; showRatings: boolean; showActivity: boolean; showFavorites: boolean; allowMessageRequests: boolean };
   themePreference: ThemePreference;
+  textSizePreference: TextSizePreference;
   favoriteTitleIds?: string[];
   createdAt: string;
 }

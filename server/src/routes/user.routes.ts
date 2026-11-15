@@ -42,6 +42,7 @@ usersRouter.patch('/me', authenticate, route(async (request, response) => {
     avatar: z.url().or(z.literal('')).optional(),
     profileVisibility: z.enum(['public', 'private']).optional(),
     themePreference: z.enum(['dark', 'light', 'ocean', 'forest', 'rose', 'sunset', 'ocean-light', 'sage-light', 'rose-light', 'sunset-light', 'system']).optional(),
+    textSizePreference: z.enum(['small', 'default', 'large']).optional(),
     privacySettings: z.object({ showStats: z.boolean().optional(), showLists: z.boolean().optional(), showRatings: z.boolean().optional(), showActivity: z.boolean().optional(), showFavorites: z.boolean().optional(), allowMessageRequests: z.boolean().optional() }).optional(),
     favoriteTitleIds: z.array(z.string().refine(mongoose.isValidObjectId)).max(10).optional(),
   }).parse(request.body);
@@ -51,6 +52,7 @@ usersRouter.patch('/me', authenticate, route(async (request, response) => {
   if (input.avatar !== undefined) user.avatar = input.avatar;
   if (input.profileVisibility) user.profileVisibility = input.profileVisibility;
   if (input.themePreference) user.themePreference = input.themePreference;
+  if (input.textSizePreference) user.textSizePreference = input.textSizePreference;
   if (input.privacySettings) user.privacySettings = { ...user.privacySettings, ...input.privacySettings };
   if (input.favoriteTitleIds) {
     const ids = input.favoriteTitleIds.map((id) => new mongoose.Types.ObjectId(id));
@@ -62,7 +64,7 @@ usersRouter.patch('/me', authenticate, route(async (request, response) => {
     id: String(user._id), username: user.username, usernameSetupRequired: user.usernameSetupRequired, email: user.email,
     emailVerified: user.emailVerified,
     avatar: user.avatar, bio: user.bio, profileVisibility: user.profileVisibility,
-    privacySettings: user.privacySettings, themePreference: user.themePreference, createdAt: user.createdAt,
+    privacySettings: user.privacySettings, themePreference: user.themePreference, textSizePreference: user.textSizePreference ?? 'default', createdAt: user.createdAt,
     favoriteTitleIds: (user.favoriteTitleIds ?? []).map(String),
   } });
 }));
