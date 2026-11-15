@@ -51,7 +51,7 @@ catalogRouter.get('/:id', authenticateOptional, route(async (request, response) 
   response.json({ item: title, myCommunityRating, libraryEntry });
 }));
 
-const ratingSchema = z.object({ rating: z.number().min(1).max(10).refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8, 'Use at most two decimal places.') });
+const ratingSchema = z.object({ rating: z.number().min(1).max(10).refine((value) => Math.abs(value * 2 - Math.round(value * 2)) < 1e-8, 'Choose a rating in half-point steps.') });
 
 export const ratingRouter = Router();
 ratingRouter.get('/:titleId/reviews', route(async (request, response) => {

@@ -71,9 +71,16 @@ function MissingPage() {
   return <main className="not-found"><p className="eyebrow">Page not found</p><h1>This story went another way.</h1><p>The page may have moved, or the address may be incomplete.</p><a className="button button--outline" href="/">Return to Showgraphy</a></main>;
 }
 
+function HomePageRoute() {
+  const { user, ready, restoreError } = useAuth();
+  if (user) return <Navigate to="/app" replace />;
+  if (!ready && !restoreError) return <main className="route-loading"><LoadingLine /></main>;
+  return <LandingPage />;
+}
+
 export function App() {
   return <BrowserRouter><Suspense fallback={<main className="route-loading"><LoadingLine /></main>}><Routes>
-    <Route path="/" element={<LandingPage />} />
+    <Route path="/" element={<HomePageRoute />} />
     <Route path="/login" element={<AuthPage mode="login" />} />
     <Route path="/register" element={<AuthPage mode="register" />} />
     <Route path="/forgot-password" element={<ForgotPasswordPage />} />

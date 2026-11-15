@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Bell, BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, Palette, Settings, UserRound, UserSearch, X } from 'lucide-react';
+import { Bell, BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, Palette, Settings, UserRound, UserSearch, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { apiRequest } from '../lib/api';
@@ -16,7 +16,6 @@ const navigation = [
   { to: '/app/insights', label: 'Insights', icon: ChartNoAxesCombined },
   { to: '/app/chat', label: 'Global Chat', icon: MessageCircle },
   { to: '/people', label: 'People', icon: UserSearch },
-  { to: '/following', label: 'Following', icon: Activity },
   { to: '/messages', label: 'Messages', icon: MessageCircle },
 ];
 const mobileNavigation = navigation.filter(({ to }) => ['/app', '/app/discover', '/app/chat', '/people', '/messages'].includes(to));
@@ -42,7 +41,7 @@ export function AppShell() {
     refetchOnWindowFocus: true,
   });
   const unreadCount = notifications.data?.unreadCount ?? 0;
-  const title = pageTitles[location.pathname] || (location.pathname.startsWith('/messages/') ? 'Messages' : location.pathname.includes('/title/') ? 'Title details' : location.pathname.includes('/collections/') ? 'A collection' : 'Showgraphy');
+  const title = pageTitles[location.pathname] || (location.pathname.startsWith('/messages/') ? 'Messages' : location.pathname.includes('/followers') ? 'Followers' : location.pathname.includes('/following') ? 'Following' : location.pathname.includes('/title/') ? 'Title details' : location.pathname.includes('/collections/') ? 'A collection' : 'Showgraphy');
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -63,9 +62,9 @@ export function AppShell() {
       <button className="rail-toggle" aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!rail} aria-controls="primary-navigation" onClick={() => setRail((value) => !value)} title={rail ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}><span>‹</span></button>
       <nav className="primary-nav">
         <p className="nav-label">The collection</p>
-        {navigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? label : undefined}>
+        {navigation.map(({ to, label, icon: Icon, end }) => <Fragment key={to}><NavLink to={to} end={end} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? label : undefined}>
           <Icon size={18} strokeWidth={1.7} /><span className="nav-link__label">{label}</span><span className="nav-link__tip">{label}</span>
-        </NavLink>)}
+        </NavLink>{to === '/people' && <div className="nav-following-group"><span className="nav-label">Following</span><NavLink to={`/u/${user?.username ?? ''}/following`} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-sublink${isActive ? ' is-active' : ''}`}>Following</NavLink><NavLink to={`/u/${user?.username ?? ''}/followers`} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-sublink${isActive ? ' is-active' : ''}`}>Followers</NavLink><NavLink to="/blocked" onClick={() => setDrawer(false)} className={({ isActive }) => `nav-sublink${isActive ? ' is-active' : ''}`}>Blocked accounts</NavLink></div>}</Fragment>)}
       </nav>
       <div className="sidebar-bottom">
         <NavLink to="/app/settings" className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? 'Settings' : undefined} onClick={() => setDrawer(false)}><Settings size={18} strokeWidth={1.7} /><span className="nav-link__label">Settings</span><span className="nav-link__tip">Settings</span></NavLink>

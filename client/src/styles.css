@@ -433,6 +433,12 @@ select { cursor: pointer; }
 .app-frame--rail .sidebar-bottom { padding-right: 10px; padding-left: 10px; }
 .app-frame--rail .account-link { justify-content: center; padding: 4px 0; }
 .app-frame--rail .account-link__text { display: none; }
+.nav-following-group { display: grid; gap: 2px; margin: 8px 0 12px; }
+.nav-following-group > .nav-label { margin: 6px 7px 3px; }
+.nav-sublink { min-height: 34px; display: flex; align-items: center; margin-left: 11px; padding: 0 10px; border-left: 1px solid var(--line); color: var(--ink-3); font-size: 12px; transition: color var(--t-ui), border-color var(--t-ui), background var(--t-ui); }
+.nav-sublink:hover, .nav-sublink.is-active { border-color: var(--primary); color: var(--primary); }
+.nav-sublink.is-active { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.app-frame--rail .nav-following-group { display: none; }
 .app-main { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .app-topbar { position: sticky; top: 0; z-index: 10; display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 20px; padding: 0 clamp(20px, 3vw, 38px); border-bottom: 1px solid var(--line); background: var(--bg); }
 .topbar-title { display: flex; align-items: baseline; gap: 12px; color: var(--ink); font-size: 14px; font-weight: 600; }
@@ -623,9 +629,11 @@ kbd { display: inline-grid; min-width: 20px; height: 20px; place-items: center; 
 .rating-picker:focus-within { border-color: var(--focus); background: var(--surface); }
 .rating-picker > svg:first-child { flex: 0 0 auto; fill: color-mix(in srgb, var(--primary) 18%, transparent); }
 .rating-picker > svg:last-child { flex: 0 0 auto; pointer-events: none; }
-.rating-picker input { width: 100%; min-width: 0; min-height: 40px; flex: 1; padding: 0 4px; border: 0; outline: 0; background: transparent; box-shadow: none; color: var(--ink); font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.rating-picker input, .rating-picker select { width: 100%; min-width: 0; min-height: 40px; flex: 1; padding: 0 4px; border: 0; outline: 0; background: transparent; box-shadow: none; color: var(--ink); font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.rating-picker select { min-width: 82px; padding-right: 5px; background-color: var(--surface); color: var(--ink); color-scheme: light dark; cursor: pointer; }
+.rating-picker select option { background: var(--surface); color: var(--ink); }
 .rating-picker input::placeholder { color: var(--ink-3); font-size: 13px; font-weight: 450; opacity: 1; }
-.rating-picker input:focus, .rating-picker input:focus-visible { border: 0; outline: 0; box-shadow: none; }
+.rating-picker input:focus, .rating-picker input:focus-visible, .rating-picker select:focus, .rating-picker select:focus-visible { border: 0; outline: 0; box-shadow: none; }
 .rating-picker input:disabled { cursor: wait; opacity: .7; }
 .rating-save-status { min-height: 16px; margin-top: 6px; color: var(--ink-3); font-size: 10px; }
 .rating-panel--yours .text-button { margin-top: 5px; text-align: left; }
@@ -969,7 +977,9 @@ kbd { display: inline-grid; min-width: 20px; height: 20px; place-items: center; 
 .social-community-nav a:hover { color: var(--ink); }
 .social-community-nav a.active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 10%, transparent); }
 .social-search { display: flex; max-width: 520px; min-height: 44px; align-items: center; gap: 10px; margin: 0 0 20px; padding: 0 13px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink-3); }
-.social-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); }
+.social-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); box-shadow: none; }
+.social-search input:focus, .social-search input:focus-visible { border: 0; outline: 0; box-shadow: none; }
+.social-search:focus-within { border-color: var(--line); outline: 0; box-shadow: none; }
 .social-list { display: grid; }
 .social-row, .conversation-row, .notice-row { display: flex; min-height: 68px; align-items: center; gap: 13px; padding: 10px 4px; border-bottom: 1px solid color-mix(in srgb, var(--line) 45%, transparent); }
 .social-row__profile { display: flex; min-width: 0; flex: 1; align-items: center; gap: 12px; color: var(--ink); }
