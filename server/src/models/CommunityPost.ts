@@ -26,6 +26,7 @@ const imageSchema = new Schema({
 
 const postSchema = new Schema({
   author: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  title: { type: String, trim: true, required: true, minlength: 1, maxlength: 180 },
   content: { type: String, trim: true, maxlength: 4000, default: '' },
   category: { type: String, enum: ['discussion', 'question', 'recommendation', 'general'], default: 'general' },
   mediaReferences: { type: [referenceSchema], default: [] },
