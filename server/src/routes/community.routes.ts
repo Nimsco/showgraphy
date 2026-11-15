@@ -72,6 +72,7 @@ const pollSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 }).optional();
 const createSchema = z.object({
+  title: z.string().trim().min(1, 'Add a post title.').max(180),
   content: z.string().trim().max(4000).default(''),
   category: z.enum(['discussion', 'question', 'recommendation', 'general']).default('general'),
   titleIds: z.array(z.string().refine(validId)).max(8).default([]),
@@ -81,7 +82,7 @@ const createSchema = z.object({
   spoilerDescription: z.string().trim().max(120).default(''),
   poll: pollSchema,
 });
-const editSchema = z.object({ content: z.string().trim().min(1).max(4000), category: z.enum(['discussion', 'question', 'recommendation', 'general']).optional(), titleIds: z.array(z.string().refine(validId)).max(8).optional(), containsSpoilers: z.boolean().optional(), spoilerDescription: z.string().trim().max(120).optional(), mentionIds: z.array(z.string().refine(validId)).max(20).optional() });
+const editSchema = z.object({ title: z.string().trim().min(1, 'Add a post title.').max(180), content: z.string().trim().max(4000), category: z.enum(['discussion', 'question', 'recommendation', 'general']).optional(), titleIds: z.array(z.string().refine(validId)).max(8).optional(), containsSpoilers: z.boolean().optional(), spoilerDescription: z.string().trim().max(120).optional(), mentionIds: z.array(z.string().refine(validId)).max(20).optional() });
 const commentSchema = z.object({ content: z.string().trim().min(1).max(2000), parentCommentId: z.string().refine(validId).optional(), mentionIds: z.array(z.string().refine(validId)).max(20).default([]) });
 
 communityRouter.post('/uploads/signature', route(async (request, response) => {
@@ -158,7 +159,6 @@ communityRouter.post('/posts', route(async (request, response) => {
   const input = createSchema.parse(request.body);
   const titleIds = [...new Set(input.titleIds)];
   const mentionIds = [...new Set(input.mentionIds)].filter((id) => id !== String(request.auth!.userId));
-  if (!input.content && !titleIds.length && !input.poll && !input.images.length) throw new HttpError(400, 'Add text, a title, an image, or a poll before publishing.');
   if (input.poll?.expiresAt && (new Date(input.poll.expiresAt) <= new Date() || new Date(input.poll.expiresAt).getTime() > Date.now() + 30 * 86_400_000)) throw new HttpError(400, 'Poll expiration must be within the next 30 days.');
   const [titles, mentions, images] = await Promise.all([
     titleIds.length ? MediaTitle.find({ _id: { $in: titleIds } }).select('_id title poster mediaType releaseDate').lean() : [],
@@ -174,7 +174,7 @@ communityRouter.post('/posts', route(async (request, response) => {
   }
   if (input.images.length && await CommunityPost.exists({ 'images.publicId': { $in: input.images.map((image) => image.publicId) } })) throw new HttpError(409, 'An uploaded image has already been attached to another discussion.');
   const item = await CommunityPost.create({
-    author: request.auth!.userId, content: input.content, category: input.category,
+    author: request.auth!.userId, title: input.title, content: input.content, category: input.category,
     mediaReferences: titles.map((title) => ({ titleId: title._id, title: title.title, poster: title.poster, mediaType: title.mediaType, releaseDate: title.releaseDate })), images,
     mentions: mentionIds, containsSpoilers: input.containsSpoilers, spoilerDescription: input.spoilerDescription,
     poll: input.poll ? { ...input.poll, expiresAt: input.poll.expiresAt ? new Date(input.poll.expiresAt) : undefined } : undefined,
@@ -273,12 +273,22 @@ communityRouter.get('/posts/:postId/comments', route(async (request, response) =
   const excluded = await blockedIds(String(request.auth!.userId));
   const comments = await CommunityComment.find({ post: post._id, parentComment: null, author: { $nin: excluded } }).sort({ createdAt: 1, _id: 1 }).skip((page - 1) * limit).limit(limit + 1).populate({ path: 'author', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).populate({ path: 'mentions', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).lean();
   const pageComments = comments.slice(0, limit);
-  const ids = pageComments.map((item) => item._id);
-  const replies = await CommunityComment.find({ post: post._id, parentComment: { $in: ids }, author: { $nin: excluded } }).sort({ createdAt: 1 }).populate({ path: 'author', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).populate({ path: 'mentions', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).lean();
-  const byParent = new Map<string, typeof replies>();
-  for (const reply of replies) byParent.set(String(reply.parentComment), [...(byParent.get(String(reply.parentComment)) ?? []), reply]);
-  const present = (comment: Record<string, unknown>) => ({ ...comment, author: comment.author ?? { username: 'deleted_user', avatar: '' }, mentions: Array.isArray(comment.mentions) ? comment.mentions.filter(Boolean) : [] });
-  response.json({ items: pageComments.map((comment) => ({ ...present(comment as unknown as Record<string, unknown>), replies: (byParent.get(String(comment._id)) ?? []).map((reply) => present(reply as unknown as Record<string, unknown>)) })), page, hasMore: comments.length > limit });
+  const roots = pageComments.map((item) => item._id);
+  let frontier = roots;
+  let descendants: typeof comments = [];
+  while (frontier.length) {
+    const children = await CommunityComment.find({ post: post._id, parentComment: { $in: frontier }, author: { $nin: excluded } }).sort({ createdAt: 1, _id: 1 }).populate({ path: 'author', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).populate({ path: 'mentions', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).lean();
+    descendants.push(...children);
+    frontier = children.map((item) => item._id);
+  }
+  const present = (comment: Record<string, unknown>) => ({ ...comment, author: comment.author ?? { username: 'deleted_user', avatar: '' }, mentions: Array.isArray(comment.mentions) ? comment.mentions.filter(Boolean) : [], replies: [] as Array<Record<string, unknown>> });
+  const nodes = new Map<string, ReturnType<typeof present>>();
+  for (const comment of [...pageComments, ...descendants]) nodes.set(String(comment._id), present(comment as unknown as Record<string, unknown>));
+  for (const comment of descendants) {
+    const parent = nodes.get(String(comment.parentComment));
+    if (parent) parent.replies.push(nodes.get(String(comment._id))!);
+  }
+  response.json({ items: pageComments.map((comment) => nodes.get(String(comment._id))), page, hasMore: comments.length > limit });
 }));
 
 communityRouter.post('/posts/:postId/comments', route(async (request, response) => {
@@ -290,8 +300,8 @@ communityRouter.post('/posts/:postId/comments', route(async (request, response) 
   if (mentionedUsers.length !== mentions.length || mentionedUsers.some((person) => !input.content.toLowerCase().includes(`@${person.username.toLowerCase()}`))) throw new HttpError(400, 'One or more selected mentions are unavailable or missing from your comment.');
   let parent: InstanceType<typeof CommunityComment> | null = null;
   if (input.parentCommentId) {
-    parent = await CommunityComment.findOne({ _id: input.parentCommentId, post: post._id, parentComment: null, deletedAt: null });
-    if (!parent) throw new HttpError(400, 'Replies must belong to an available top-level comment.');
+    parent = await CommunityComment.findOne({ _id: input.parentCommentId, post: post._id, deletedAt: null });
+    if (!parent) throw new HttpError(400, 'Replies must belong to an available comment in this discussion.');
     if (await isBlockedEitherWay(viewerId, String(parent.author))) throw new HttpError(404, 'Comment not found.');
   }
   const item = await CommunityComment.create({ post: post._id, author: viewerId, parentComment: parent?._id ?? null, content: input.content, mentions });
@@ -346,7 +356,8 @@ communityRouter.post('/comments/:commentId/report', route(async (request, respon
 communityRouter.get('/search', route(async (request, response) => {
   const term = z.string().trim().min(2).max(80).parse(request.query.q ?? '');
   const { page, limit } = pageParams(request.query as Record<string, unknown>);
-  const posts = await CommunityPost.find({ deletedAt: null, author: { $nin: await blockedIds(String(request.auth!.userId)) }, content: { $regex: term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate({ path: 'author', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).lean();
+  const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const posts = await CommunityPost.find({ deletedAt: null, author: { $nin: await blockedIds(String(request.auth!.userId)) }, $or: [{ title: { $regex: escapedTerm, $options: 'i' } }, { content: { $regex: escapedTerm, $options: 'i' } }] }).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate({ path: 'author', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).lean();
   const visiblePosts = posts.filter((post) => post.author);
   response.json({ items: await hydratePosts(visiblePosts as unknown as Array<Record<string, unknown>>, String(request.auth!.userId)), page, hasMore: visiblePosts.length === limit });
 }));
