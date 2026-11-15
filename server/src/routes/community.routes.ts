@@ -331,7 +331,12 @@ communityRouter.get('/posts/:postId/comments', route(async (request, response) =
       CommunityComment.countDocuments(replyFilter),
       CommunityComment.find(replyFilter).sort({ createdAt: 1, _id: 1 }).limit(2).populate({ path: 'author', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).populate({ path: 'mentions', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).lean(),
     ]);
-    return { ...present(comment as unknown as Record<string, unknown>), replyCount, replies: replies.map((reply) => present(reply as unknown as Record<string, unknown>)) };
+    const repliesWithCounts = await Promise.all(replies.map(async (reply) => {
+      const childFilter = { post: post._id, parentComment: reply._id, author: { $nin: excluded } };
+      const childReplyCount = await CommunityComment.countDocuments(childFilter);
+      return { ...present(reply as unknown as Record<string, unknown>), replyCount: childReplyCount };
+    }));
+    return { ...present(comment as unknown as Record<string, unknown>), replyCount, replies: repliesWithCounts };
   }));
   response.json({ items, page, hasMore: comments.length > limit });
 }));
