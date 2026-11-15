@@ -6,7 +6,7 @@ export type CommunityCategory = (typeof COMMUNITY_CATEGORIES)[number];
 export const communityCategorySchema = z.enum(COMMUNITY_CATEGORIES);
 export const communityCategoriesSchema = z.array(communityCategorySchema)
   .min(1)
-  .max(3)
+  .max(1)
   .refine((items) => new Set(items).size === items.length, 'Categories must be unique.')
   .refine((items) => !items.includes('general') || items.length === 1, 'General cannot be combined with other categories.');
 

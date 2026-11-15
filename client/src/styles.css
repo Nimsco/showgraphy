@@ -1413,7 +1413,7 @@ kbd { display: inline-grid; min-width: 20px; height: 20px; place-items: center; 
 .community-comment-form__input { position: relative; min-width: 0; }
 .community-comment-form textarea, .community-comment__body form textarea { width: 100%; min-height: 44px; max-height: 140px; padding: 11px 12px; border: 1px solid transparent; border-radius: 10px; outline: 0; background: var(--surface); color: var(--ink); font: 11px/1.6 var(--font-text); resize: vertical; }
 .community-comment-form textarea:focus, .community-comment__body form textarea:focus { border-color: color-mix(in srgb, var(--focus) 35%, transparent); box-shadow: none; }
-.community-comment-form .button { min-height: 39px; padding: 0 12px; font-size: 10px; }
+.community-comment-form .button { min-height: 44px; align-self: end; padding: 0 12px; font-size: 10px; }
 .community-comment { position: relative; display: flex; align-items: flex-start; gap: 9px; padding: 12px 0; border-top: 1px solid color-mix(in srgb, var(--line) 28%, transparent); }
 .community-comment__body { flex: 1; min-width: 0; }
 .community-comment__body header { display: flex; align-items: center; gap: 8px; }
@@ -1620,6 +1620,9 @@ kbd { display: inline-grid; min-width: 20px; height: 20px; place-items: center; 
 .community-comment__actions button { display: inline-flex; min-height: 24px; align-items: center; padding: 0; font-size: 10px; }
 .community-comment-thread__replies { margin: 9px 0 0 32px; padding-left: 13px; border-left: 1px solid color-mix(in srgb, var(--line) 52%, transparent); }
 .community-comment--reply { margin: 0; padding: 10px 0 0; border: 0; }
+.community-comment-thread--nested { min-width: 0; }
+.community-comment-thread--nested > .community-comment { padding-top: 8px; }
+.community-comment-thread--nested .community-comment-thread__replies { margin-left: 18px; padding-left: 10px; }
 .community-thread-toggle { margin: 8px 0 0 43px; padding: 4px 0; border: 0; background: transparent; color: var(--primary); font: 10px var(--font-text); cursor: pointer; }
 .community-thread-toggle:hover { text-decoration: underline; }
 .community-load-more { margin: 8px 0 0; }
@@ -1629,6 +1632,7 @@ kbd { display: inline-grid; min-width: 20px; height: 20px; place-items: center; 
   .community-post__categories { max-width: 38%; }
   .community-edit-categories { align-items: flex-start; flex-direction: column; }
   .community-comment-thread__replies { margin-left: 18px; padding-left: 9px; }
+  .community-comment-thread--nested .community-comment-thread__replies { margin-left: 12px; padding-left: 7px; }
   .community-thread-toggle { margin-left: 27px; }
 }
 
