@@ -5,7 +5,7 @@ import { ArrowLeft, Check, Flag, MessageCircle, Pencil, Search, Send, Shield, Tr
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { Button, ConfirmDialog, EmptyState, LoadingLine, PageHeading, Poster } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
-import { apiRequest, getAccessToken, refreshAccessTokenStatus } from '../lib/api';
+import { ApiError, apiRequest, getAccessToken, refreshAccessTokenStatus } from '../lib/api';
 import type { MediaTitle } from '../types';
 
 type Person = { id?: string; _id?: string; username: string; avatar: string; bio: string; isFollowing?: boolean; mutualFollowers?: number };
@@ -233,7 +233,7 @@ export function ConversationPage() {
     event.preventDefault(); if (!editTarget || !editDraft.trim() || editBusy) return;
     setEditBusy(true); setEditError('');
     try { await apiRequest(`/social/conversations/${conversationId}/messages/${editTarget._id}`, { method: 'PATCH', body: JSON.stringify({ content: editDraft }) }); setEditTarget(null); await client.invalidateQueries({ queryKey: ['social', 'messages', conversationId] }); }
-    catch (cause) { setEditError(cause instanceof Error ? cause.message : 'The message could not be edited.'); }
+    catch (cause) { setEditError(cause instanceof ApiError && [404, 405].includes(cause.status) ? 'Message editing is not available on the connected API yet. Deploy the updated server and try again.' : cause instanceof Error ? cause.message : 'The message could not be edited.'); }
     finally { setEditBusy(false); }
   }
   async function deletePrivateMessage() {
