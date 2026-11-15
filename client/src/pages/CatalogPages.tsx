@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Check, Film, Heart, MessageSquareText, Pencil, Plus, Search, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
-import { Button, EmptyState, FieldError, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
+import { Button, ConfirmDialog, EmptyState, FieldError, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
 import { apiRequest } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { LibraryEntry, MediaTitle, UserList, WatchStatus } from '../types';
@@ -166,6 +166,9 @@ export function LibraryPage() {
   const [page, setPage] = useState(1);
   const client = useQueryClient();
   const [changeError, setChangeError] = useState('');
+  const [removeTarget, setRemoveTarget] = useState<LibraryEntry | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState('');
   useEffect(() => { setStatus(params.get('status') || ''); }, [params]);
   useEffect(() => { setPage(1); }, [status, category, query]);
   const result = useQuery({ queryKey: ['library', status, category, query, page], queryFn: () => apiRequest<Page<LibraryEntry>>(`/library?limit=24&page=${page}${status ? `&status=${status}` : ''}${category ? `&category=${category}` : ''}${query ? `&q=${encodeURIComponent(query)}` : ''}`) });
@@ -174,17 +177,22 @@ export function LibraryPage() {
     catch (error) { setChangeError(error instanceof Error ? error.message : 'The entry could not be updated.'); }
   }
   async function removeEntry(entry: LibraryEntry) {
-    if (!window.confirm(`Do you want to remove ${entry.titleId.title} from your library?`)) return;
+    setRemoveTarget(entry); setRemoveError('');
+  }
+  async function confirmRemoveEntry() {
+    if (!removeTarget) return;
+    setRemoveBusy(true); setRemoveError('');
     try {
-      setChangeError('');
-      await apiRequest(`/library/${entry._id}`, { method: 'DELETE' });
+      await apiRequest(`/library/${removeTarget._id}`, { method: 'DELETE' });
       await Promise.all([
         client.invalidateQueries({ queryKey: ['library'] }),
         client.invalidateQueries({ queryKey: ['lists'] }),
         client.invalidateQueries({ queryKey: ['stats'] }),
-        client.invalidateQueries({ queryKey: ['title', entry.titleId._id] }),
+        client.invalidateQueries({ queryKey: ['title', removeTarget.titleId._id] }),
       ]);
-    } catch (error) { setChangeError(error instanceof Error ? error.message : 'The title could not be removed from your library.'); }
+      setRemoveTarget(null);
+    } catch (error) { setRemoveError(error instanceof Error ? error.message : 'The title could not be removed from your library.'); }
+    finally { setRemoveBusy(false); }
   }
   function chooseStatus(value: string) { setStatus(value); const next = new URLSearchParams(params); if (value) next.set('status', value); else next.delete('status'); setParams(next); }
 
@@ -198,6 +206,7 @@ export function LibraryPage() {
     <div className="results-heading"><p>{result.data ? `${result.data.total} ${result.data.total === 1 ? 'title' : 'titles'} in this view` : 'Your personal collection'}</p><Link to="/app/collections" className="inline-arrow">Open collections <ArrowRight size={14} /></Link></div>
     {changeError && <p className="form-alert" role="alert">{changeError}</p>}
     {result.isLoading ? <LoadingLine label="Opening your library" /> : result.error ? <EmptyState title="Your library could not load" description={result.error instanceof Error ? result.error.message : 'Check the connection and try again.'} action={<Button variant="outline" onClick={() => void result.refetch()}>Try again</Button>} /> : result.data?.items.length ? <><div className="library-entries">{result.data.items.map((entry) => <LibraryEntryCard key={entry._id} entry={entry} onChange={changeEntry} onRemove={removeEntry} />)}</div><PageControls page={page} totalPages={Math.ceil(result.data.total / result.data.limit)} onChange={setPage} /></> : <EmptyState title={status ? 'Nothing in this section yet' : 'Your library is waiting for a first title'} description="Search the catalog or add a title by hand. The collection will grow from your own viewing history." action={<Link className="button button--primary" to="/app/discover"><Search size={16} /> Find a title</Link>} icon={<Film size={22} />} />}
+    <ConfirmDialog open={Boolean(removeTarget)} eyebrow="Your library" title="Remove this title?" description={removeTarget ? `Remove “${removeTarget.titleId.title}” from your library? Its collection links will also be removed.` : ''} confirmLabel="Remove title" busy={removeBusy} error={removeError} onCancel={() => setRemoveTarget(null)} onConfirm={() => void confirmRemoveEntry()} />
   </div>;
 }
 

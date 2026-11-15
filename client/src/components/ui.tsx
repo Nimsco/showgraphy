@@ -1,6 +1,6 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { useEffect, useId, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ImageOff, Search } from 'lucide-react';
+import { ImageOff, Search, X } from 'lucide-react';
 import type { MediaTitle } from '../types';
 
 export function Logo({ compact = false, light = false }: { compact?: boolean; light?: boolean }) {
@@ -58,4 +58,28 @@ export function PageHeading({ eyebrow, title, description, action }: { eyebrow?:
 
 export function FieldError({ children }: { children?: ReactNode }) {
   return children ? <p className="field-error" role="alert">{children}</p> : null;
+}
+
+export function ConfirmDialog({ open, title, description, eyebrow = 'Please confirm', confirmLabel = 'Confirm', variant = 'danger', busy = false, error, onCancel, onConfirm }: {
+  open: boolean;
+  title: string;
+  description: ReactNode;
+  eyebrow?: string;
+  confirmLabel?: string;
+  variant?: 'primary' | 'danger';
+  busy?: boolean;
+  error?: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) onCancel(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, busy, onCancel]);
+  if (!open) return null;
+  return <div className="dialog-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCancel(); }}><section className="dialog-panel confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}><div className="dialog-header"><div><p className="eyebrow">{eyebrow}</p><h2 id={titleId}>{title}</h2></div><button type="button" className="icon-button" aria-label="Close confirmation" disabled={busy} onClick={onCancel}><X size={18} /></button></div><p className="dialog-intro" id={descriptionId}>{description}</p>{error && <p className="form-alert" role="alert">{error}</p>}<div className="dialog-actions"><Button type="button" variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button><Button type="button" variant={variant} disabled={busy} onClick={onConfirm}>{busy ? 'Please wait…' : confirmLabel}</Button></div></section></div>;
 }

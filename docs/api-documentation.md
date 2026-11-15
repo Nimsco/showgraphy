@@ -44,7 +44,7 @@ All `/social` routes require an access token.
 - `GET /social/notifications?page=&limit=&unread=` returns notifications and the unread count; `PATCH /social/notifications/:id/read` and `PATCH /social/notifications/read-all` update read state.
 - `GET /social/conversations?page=&limit=&requests=` returns the inbox or received requests; `POST /social/conversations/:username` creates or returns a unique participant pair.
 - `GET /social/conversations/:conversationId` returns the authorized other participant and request state.
-- `GET /social/conversations/:conversationId/messages?limit=&before=` returns authorized history; `POST /social/conversations/:conversationId/messages` sends idempotent, rate-limited text messages and emits the same real-time event when socket transport is unavailable; `PATCH /social/conversations/:conversationId/{accept|decline|read}` handles requests and read state.
+- `GET /social/conversations/:conversationId/messages?limit=&before=` returns authorized history; `POST /social/conversations/:conversationId/messages` sends idempotent, rate-limited text messages; `PATCH|DELETE /social/conversations/:conversationId/messages/:messageId` edit or soft-delete a sender-owned message and notify both participants over the existing socket event; `PATCH /social/conversations/:conversationId/{accept|decline|read}` handles requests and read state.
 - `POST /social/reports` reports a member or a message in a conversation.
 
 ## Community

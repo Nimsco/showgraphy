@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Bell, BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, MessageSquareText, Palette, Settings, UserRound, UserSearch, X } from 'lucide-react';
@@ -64,9 +64,9 @@ export function AppShell() {
       <button className="rail-toggle" aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!rail} aria-controls="primary-navigation" onClick={() => setRail((value) => !value)} title={rail ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}><span>‹</span></button>
       <nav className="primary-nav">
         <p className="nav-label">The collection</p>
-        {navigation.map(({ to, label, icon: Icon, end }) => <Fragment key={to}><NavLink to={to} end={end} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? label : undefined}>
+        {navigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? label : undefined}>
           <Icon size={18} strokeWidth={1.7} /><span className="nav-link__label">{label}</span><span className="nav-link__tip">{label}</span>
-        </NavLink>{to === '/people' && <div className="nav-following-group"><span className="nav-label">Following</span><NavLink to={`/u/${user?.username ?? ''}/following`} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-sublink${isActive ? ' is-active' : ''}`}>Following</NavLink><NavLink to={`/u/${user?.username ?? ''}/followers`} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-sublink${isActive ? ' is-active' : ''}`}>Followers</NavLink><NavLink to="/blocked" onClick={() => setDrawer(false)} className={({ isActive }) => `nav-sublink${isActive ? ' is-active' : ''}`}>Blocked accounts</NavLink></div>}</Fragment>)}
+        </NavLink>)}
       </nav>
       <div className="sidebar-bottom">
         <NavLink to="/app/settings" className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? 'Settings' : undefined} onClick={() => setDrawer(false)}><Settings size={18} strokeWidth={1.7} /><span className="nav-link__label">Settings</span><span className="nav-link__tip">Settings</span></NavLink>

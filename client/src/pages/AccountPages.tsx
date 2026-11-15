@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 're
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, BarChart3, CalendarDays, Check, Copy, Eye, Flag, LockKeyhole, Mail, MessageCircle, Monitor, Share2, Shield, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Button, EmptyState, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
+import { Button, ConfirmDialog, EmptyState, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { themeGroups, useTheme } from '../contexts/ThemeContext';
 import { apiRequest } from '../lib/api';
@@ -246,8 +246,10 @@ export function SettingsPage() {
   const [avatar, setAvatar] = useState('');
   const [favoriteTitleIds, setFavoriteTitleIds] = useState<string[]>(user?.favoriteTitleIds ?? []);
   const [notice, setNotice] = useState('');
+  const [saveNotice, setSaveNotice] = useState('');
   const [error, setError] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [passwordNotice, setPasswordNotice] = useState('');
@@ -262,8 +264,8 @@ export function SettingsPage() {
 
   useEffect(() => { if (user) { setBio(user.bio); setPrivacy(user.privacySettings); setVisibility(user.profileVisibility); setAvatar(user.avatar); setFavoriteTitleIds(user.favoriteTitleIds ?? []); } }, [user?.id]);
   async function saveProfile(event: FormEvent) {
-    event.preventDefault(); setNotice(''); setError('');
-    try { const result = await apiRequest<{ user: UserType }>('/users/me', { method: 'PATCH', body: JSON.stringify({ bio, avatar, profileVisibility: visibility, privacySettings: privacy, favoriteTitleIds }) }); updateUser(result.user); setNotice('Your profile and privacy choices were saved.'); }
+    event.preventDefault(); setNotice(''); setSaveNotice(''); setError('');
+    try { const result = await apiRequest<{ user: UserType }>('/users/me', { method: 'PATCH', body: JSON.stringify({ bio, avatar, profileVisibility: visibility, privacySettings: privacy, favoriteTitleIds }) }); updateUser(result.user); setSaveNotice('Your profile and privacy choices were saved.'); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Settings could not be saved.'); }
   }
   async function changePassword(event: FormEvent) {
@@ -303,15 +305,16 @@ export function SettingsPage() {
         {([{ key: 'showStats', label: 'Viewing statistics', text: 'Totals and category counts' }, { key: 'showLists', label: 'Public collections', text: 'Collections marked public' }, { key: 'showRatings', label: 'Your ratings', text: 'Scores you have submitted' }, { key: 'showActivity', label: 'Recent activity', text: 'Titles marked completed' }, { key: 'showFavorites', label: 'Top 10 titles', text: 'Titles you chose to feature' }, { key: 'allowMessageRequests', label: 'Message requests', text: 'Allow requests from members you do not mutually follow' }] as const).map((item) => <label className="privacy-toggle" key={item.key}><span><strong>{item.label}</strong><small>{item.text}</small></span><input type="checkbox" checked={privacy[item.key] ?? true} onChange={(event) => setPrivacy((value) => ({ ...value, [item.key]: event.target.checked }))} /><span className="switch-ui" aria-hidden="true" /></label>)}
       </div></section>
       <section className="settings-section"><div className="settings-section__intro"><Monitor size={19} /><div><h2>Appearance</h2><p>Choose a clear light palette or a dark palette with restrained accent colors. Your selection follows this account on your other devices.</p></div></div><fieldset className="settings-section__content theme-picker"><legend className="visually-hidden">Color theme</legend>{themeGroups.map((group) => <div className="theme-group" key={group.label}><h3>{group.label}</h3><div className="theme-group__options">{group.options.map((theme) => <label className={`theme-choice${preference === theme.value ? ' is-selected' : ''}`} key={theme.value} data-theme-swatch={theme.value}><input type="radio" name="themePreference" value={theme.value} checked={preference === theme.value} onChange={() => setPreference(theme.value)} /><span className="theme-choice__palette" aria-hidden="true"><i /><i /><i /></span><span className="theme-choice__label">{theme.label}</span></label>)}</div></div>)}</fieldset></section>
-      <div className="settings-save"><span><ShieldCheck size={16} /> Theme saves automatically. Profile and privacy changes save with this button.</span><Button type="submit"><Check size={15} /> Save settings</Button></div>
+      <div className="settings-save"><span><ShieldCheck size={16} /> Theme saves automatically. Profile and privacy changes save with this button.</span><div className="settings-save__action">{saveNotice && <span className="settings-save__notice" role="status">{saveNotice}</span>}<Button type="submit"><Check size={15} /> Save settings</Button></div></div>
     </form>
     <section className="settings-section password-section"><div className="settings-section__intro"><LockKeyhole size={19} /><div><h2>Password</h2><p>Use a new password with at least 8 characters.</p></div></div><form className="settings-section__content password-form" onSubmit={changePassword}><label>Current password<input type="password" autoComplete="current-password" minLength={1} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label><label>New password<input type="password" autoComplete="new-password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></label><Button type="submit" variant="outline">Update password</Button>{passwordNotice && <p className="success-inline" role="status">{passwordNotice}</p>}</form></section>
     <section className="settings-section"><div className="settings-section__intro"><Mail size={19} /><div><h2>Email address</h2><p>{user?.email}{user?.emailVerified ? ' · Verified' : ' · Not verified'}</p></div></div><div className="settings-section__content connection-row">{user?.emailVerified ? <strong className="verified-label"><Check size={14} /> Verified</strong> : <><span>{google.data?.emailEnabled ? 'Confirm your address to keep account recovery available.' : 'Email delivery is not configured on the server yet.'}</span><Button type="button" variant="outline" disabled={!google.data?.emailEnabled} onClick={() => void resendVerification()}>Send verification link</Button></>}</div></section>
     <section className="settings-section"><div className="settings-section__intro"><Monitor size={19} /><div><h2>Active sessions</h2><p>Sign out devices you no longer use. Changing your password signs out other sessions.</p></div></div><div className="settings-section__content session-list">{sessions.isLoading ? <LoadingLine label="Checking active sessions" /> : sessions.error ? <p className="quiet-line">Active sessions could not load.</p> : sessions.data?.items.map((session) => <article className="session-row" key={session.id}><div><strong>{session.current ? 'This device' : session.userAgent.split(' ').slice(0, 3).join(' ') || 'Signed-in device'}</strong><span>{session.current ? 'Current session' : `Last active ${new Date(session.lastUsedAt).toLocaleDateString()}`}</span></div><button className="text-button" disabled={session.current} onClick={() => void revokeSession(session.id)}>{session.current ? 'Active' : 'Sign out'}</button></article>)}</div></section>
     <section className="settings-section"><div className="settings-section__intro"><ShieldCheck size={19} /><div><h2>Connected accounts</h2><p>Use Google sign-in to create or connect an account.</p></div></div><div className="settings-section__content connection-row"><span>Google sign-in</span><strong>{google.data?.googleEnabled ? 'Available' : 'Not configured by the server'}</strong></div></section>
-    <section className="settings-section"><div className="settings-section__intro"><UserRound size={19} /><div><h2>Sign out</h2><p>End this session on the current device.</p></div></div><div className="settings-section__content"><Button variant="outline" onClick={() => void signOut()}>Sign out of Showgraphy</Button></div></section>
+    <section className="settings-section"><div className="settings-section__intro"><UserRound size={19} /><div><h2>Sign out</h2><p>End this session on the current device.</p></div></div><div className="settings-section__content"><Button variant="outline" onClick={() => setSignOutOpen(true)}>Sign out of Showgraphy</Button></div></section>
     <section className="settings-section danger-zone"><div className="settings-section__intro"><Trash2 size={19} /><div><h2>Delete account</h2><p>Delete your profile, collections, library entries, ratings, and sessions.</p></div></div><div className="settings-section__content"><Button variant="danger" onClick={() => setDeleteOpen(true)}>Delete my account</Button></div></section>
     {deleteOpen && <div className="dialog-scrim" role="presentation"><section className="dialog-panel confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-account-title"><div className="dialog-header"><div><p className="eyebrow">This cannot be undone</p><h2 id="delete-account-title">Delete your account?</h2></div><button className="icon-button" aria-label="Close confirmation" onClick={() => setDeleteOpen(false)}><X size={18} /></button></div><p>Your personal library, custom lists, ratings, and active share links will be removed. Catalog titles remain available to other viewers.</p><div className="dialog-actions"><Button variant="outline" onClick={() => setDeleteOpen(false)}>Keep my account</Button><Button variant="danger" onClick={() => void deleteAccount()}>Delete account</Button></div></section></div>}
+    <ConfirmDialog open={signOutOpen} eyebrow="End this session" title="Sign out of Showgraphy?" description="You’ll need to sign in again to open your journal, messages, and saved discussions on this device." confirmLabel="Sign out" variant="primary" onCancel={() => setSignOutOpen(false)} onConfirm={() => void signOut()} />
     <p className="settings-join"><CalendarDays size={14} /> Member since {user?.createdAt ? new Date(user.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'today'}</p>
   </div>;
 }
@@ -324,6 +327,9 @@ export function ProfilePage() {
   const [copyNotice, setCopyNotice] = useState('');
   const [socialNotice, setSocialNotice] = useState('');
   const [socialError, setSocialError] = useState('');
+  const [profileAction, setProfileAction] = useState<'block' | 'report' | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [dialogError, setDialogError] = useState('');
   const ownProfile = user?.username.toLowerCase() === username.toLowerCase();
   const query = useQuery({ queryKey: ['profile', username], queryFn: () => apiRequest<ProfileResult>(`/users/profiles/${encodeURIComponent(username)}`), retry: false });
   async function copyProfileLink() {
@@ -369,20 +375,22 @@ export function ProfilePage() {
     } catch (cause) { setSocialError(cause instanceof Error ? cause.message : 'A conversation could not be started.'); }
   }
   async function blockProfile() {
-    if (!window.confirm(`Block @${username}? This removes any follow connection and closes your conversations.`)) return;
-    try { await apiRequest(`/social/users/${encodeURIComponent(username)}/block`, { method: 'POST' }); navigate('/people'); }
-    catch (cause) { setSocialError(cause instanceof Error ? cause.message : 'This member could not be blocked.'); }
+    setActionBusy(true); setDialogError('');
+    try { await apiRequest(`/social/users/${encodeURIComponent(username)}/block`, { method: 'POST' }); setProfileAction(null); navigate('/people'); }
+    catch (cause) { setDialogError(cause instanceof Error ? cause.message : 'This member could not be blocked.'); }
+    finally { setActionBusy(false); }
   }
   async function reportProfile() {
-    if (!window.confirm(`Send a report about @${username} to the moderation team?`)) return;
-    try { await apiRequest('/social/reports', { method: 'POST', body: JSON.stringify({ username, reason: 'other' }) }); setSocialNotice('Report received. Thank you for helping keep Showgraphy welcoming.'); setSocialError(''); }
-    catch (cause) { setSocialError(cause instanceof Error ? cause.message : 'The report could not be sent.'); }
+    setActionBusy(true); setDialogError('');
+    try { await apiRequest('/social/reports', { method: 'POST', body: JSON.stringify({ username, reason: 'other' }) }); setProfileAction(null); setSocialNotice('Report received. Thank you for helping keep Showgraphy welcoming.'); setSocialError(''); }
+    catch (cause) { setDialogError(cause instanceof Error ? cause.message : 'The report could not be sent.'); }
+    finally { setActionBusy(false); }
   }
 
   return <main className="profile-page">
     <div className="profile-topbar"><Link to={ownProfile ? '/app' : '/'} className="inline-arrow"><ArrowLeft size={15} /> {ownProfile ? 'Back to your journal' : 'Showgraphy'}</Link>{ownProfile && <div className="profile-topbar__actions">{user?.profileVisibility === 'public' && <><Button type="button" variant="outline" onClick={() => void copyProfileLink()}><Copy size={15} /> Copy profile link</Button>{copyNotice && <span className="profile-copy-status" role="status">{copyNotice}</span>}</>}<Link className="button button--outline" to="/app/settings">Edit profile</Link></div>}</div>
     {socialNotice && <p className="success-banner" role="status">{socialNotice}</p>}{socialError && <p className="form-alert" role="alert">{socialError}</p>}
-    <header id="profile-overview" className="profile-masthead"><div className="profile-avatar">{profile.avatar ? <img src={profile.avatar} alt="" /> : <UserRound size={29} strokeWidth={1.3} />}</div><div><p className="eyebrow">A personal watchline</p><h1>@{profile.username}</h1><p className="profile-handle">Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</p>{profile.bio && <p className="profile-bio">{profile.bio}</p>}<div className="profile-social-counts"><Link to={`/u/${username}/followers`}><strong>{profile.followerCount ?? 0}</strong> followers</Link><Link to={`/u/${username}/following`}><strong>{profile.followingCount ?? 0}</strong> following</Link></div>{!ownProfile && user && <div className="profile-social-actions"><Button onClick={() => void toggleFollow()}>{profile.isFollowing ? 'Following' : 'Follow'}</Button><Button variant="outline" onClick={() => void startMessage()}><MessageCircle size={15} /> Message</Button><Button variant="quiet" onClick={() => void blockProfile()}><Shield size={14} /> Block</Button><Button variant="quiet" onClick={() => void reportProfile()} aria-label={`Report @${username}`}><Flag size={14} /></Button></div>}</div></header>
+    <header id="profile-overview" className="profile-masthead"><div className="profile-avatar">{profile.avatar ? <img src={profile.avatar} alt="" /> : <UserRound size={29} strokeWidth={1.3} />}</div><div><p className="eyebrow">A personal watchline</p><h1>@{profile.username}</h1><p className="profile-handle">Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</p>{profile.bio && <p className="profile-bio">{profile.bio}</p>}<div className="profile-social-counts"><Link to={`/u/${username}/followers`}><strong>{profile.followerCount ?? 0}</strong> followers</Link><Link to={`/u/${username}/following`}><strong>{profile.followingCount ?? 0}</strong> following</Link></div>{!ownProfile && user && <div className="profile-social-actions"><Button onClick={() => void toggleFollow()}>{profile.isFollowing ? 'Following' : 'Follow'}</Button><Button variant="outline" onClick={() => void startMessage()}><MessageCircle size={15} /> Message</Button><Button variant="quiet" onClick={() => { setDialogError(''); setProfileAction('block'); }}><Shield size={14} /> Block</Button><Button variant="quiet" onClick={() => { setDialogError(''); setProfileAction('report'); }} aria-label={`Report @${username}`}><Flag size={14} /></Button></div>}</div></header>
     <nav className="profile-social-tabs" aria-label="Profile sections"><Link to={`/u/${username}`}>Overview</Link>{reviews?.length ? <Link to={`/u/${username}/reviews`}>Reviews <span>{reviews.length}</span></Link> : null}{ratings?.length ? <Link to={`/u/${username}/ratings`}>Ratings <span>{ratings.length}</span></Link> : null}{lists?.length ? <a href="#profile-watchlist">Watchlist</a> : null}</nav>
     {stats && <section className="profile-stats"><div><strong>{stats.completed}</strong><span>completed</span></div><div><strong>{stats.movies}</strong><span>films</span></div><div><strong>{stats.series}</strong><span>series</span></div><div><strong>{stats.total}</strong><span>titles in library</span></div></section>}
     {stats && <section className="profile-category-stats" aria-label="Titles by category"><div><p className="eyebrow">Across the library</p><h2>By type</h2><p>Counts include titles at every watch status.</p></div><ul>{insightCategories.map((category) => <li key={category.key}><span>{category.label}</span><strong>{stats.byCategory.find((item) => item.category === category.key)?.count ?? 0}</strong></li>)}</ul></section>}
@@ -392,6 +400,8 @@ export function ProfilePage() {
     {lists?.length ? <section id="profile-watchlist" className="profile-section"><div className="section-topline"><div><p className="eyebrow">Kept together</p><h2>Public collections</h2></div></div><div className="profile-lists">{lists.map((list) => <article key={list._id}><h3>{list.name}</h3><p>{list.description || `${list.orderedItems.length} titles`}</p><span>{list.orderedItems.length} {list.orderedItems.length === 1 ? 'title' : 'titles'}</span></article>)}</div></section> : null}
     {!stats && !recent?.length && !lists?.length && !ratings?.length && !reviews?.length && <EmptyState title="A watchline takes shape over time" description={`@${profile.username} has not made public sections available yet.`} />}
     <footer className="profile-footer"><span>showgraphy</span><span>A personal record of what moved you.</span></footer>
+    <ConfirmDialog open={profileAction === 'block'} eyebrow="Manage your connections" title={`Block @${username}?`} description="This removes any follow connection and closes your conversations with this member." confirmLabel="Block account" busy={actionBusy} error={dialogError} onCancel={() => setProfileAction(null)} onConfirm={() => void blockProfile()} />
+    <ConfirmDialog open={profileAction === 'report'} eyebrow="Help keep Showgraphy welcoming" title={`Report @${username}?`} description="This report will be sent to the moderation team for review." confirmLabel="Send report" variant="primary" busy={actionBusy} error={dialogError} onCancel={() => setProfileAction(null)} onConfirm={() => void reportProfile()} />
   </main>;
 }
 

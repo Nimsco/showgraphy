@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { Link } from 'react-router-dom';
 import { Flag, MessageCircle, Send, Trash2, UserRound, Wifi, WifiOff, X } from 'lucide-react';
 import { Button, LoadingLine } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
@@ -371,7 +372,7 @@ export function GlobalChatPage() {
           <article className={`chat-message${message.authorId === user?.id ? ' chat-message--own' : ''}${continues ? ' chat-message--continuation' : ''}${message.deletedAt ? ' chat-message--deleted' : ''}`}>
             <div className="chat-message__avatar">{message.avatar ? <img src={message.avatar} alt="" loading="lazy" /> : <UserRound size={16} />}</div>
             <div className="chat-message__body">
-              {!continues && <header><strong>@{message.username}</strong><time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</time></header>}
+              {!continues && <header><Link to={`/u/${encodeURIComponent(message.username)}`} aria-label={`Open @${message.username} profile`}><strong>@{message.username}</strong></Link><time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</time></header>}
               <div className="chat-message__bubble"><p>{message.deletedAt ? 'This message was deleted.' : message.text}</p>
                 {!message.deletedAt && <div className="chat-message__actions">{message.authorId === user?.id ? <button type="button" aria-label="Delete your message" title="Delete your message" onClick={() => setDeleteTarget(message)}><Trash2 size={13} /></button> : <button type="button" aria-label={`Report message from ${message.username}`} title="Report message" onClick={() => { setReportTarget(message); setReportReason('other'); setReportDetails(''); }}><Flag size={13} /></button>}</div>}
               </div>
