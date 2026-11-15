@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, BarChart3, CalendarDays, Check, Copy, Eye, Flag, LockKeyhole, Mail, MessageCircle, Monitor, Share2, Shield, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -7,6 +7,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { themeGroups, useTheme } from '../contexts/ThemeContext';
 import { apiRequest } from '../lib/api';
 import type { LibraryEntry, Statistics, User as UserType } from '../types';
+
+const CommunityProfilePosts = lazy(() => import('./CommunityPages').then(({ CommunityProfilePosts: page }) => ({ default: page })));
 
 type Session = { id: string; current: boolean; userAgent: string; createdAt: string; lastUsedAt: string };
 type ProfileMedia = { _id: string; title: string; poster: string; mediaType: 'movie' | 'series'; releaseDate?: string; communityRating?: number; communityRatingCount?: number };
@@ -386,6 +388,7 @@ export function ProfilePage() {
     {stats && <section className="profile-category-stats" aria-label="Titles by category"><div><p className="eyebrow">Across the library</p><h2>By type</h2><p>Counts include titles at every watch status.</p></div><ul>{insightCategories.map((category) => <li key={category.key}><span>{category.label}</span><strong>{stats.byCategory.find((item) => item.category === category.key)?.count ?? 0}</strong></li>)}</ul></section>}
     {favorites?.length ? <section className="profile-section"><div className="section-topline"><div><p className="eyebrow">Featured by @{profile.username}</p><h2>{profile.username}'s top 10</h2></div></div><div className="media-grid media-grid--compact">{favorites.map((title) => <article className="media-card" key={title._id}><Poster title={title} /><div className="media-card__body"><h3>{title.title}</h3><p className="media-card__meta">{title.releaseDate?.slice(0, 4)} · {title.mediaType}</p></div></article>)}</div></section> : null}
     {recent?.length ? <section className="profile-section"><div className="section-topline"><div><p className="eyebrow">The latest pages</p><h2>Recently completed</h2></div></div><div className="media-grid media-grid--compact">{recent.map((entry, index) => <MediaCard key={`${entry.titleId._id}-${index}`} title={entry.titleId} meta={entry.completedAt ? new Date(entry.completedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : 'Completed'} />)}</div></section> : null}
+    {user && <Suspense fallback={null}><CommunityProfilePosts username={username} /></Suspense>}
     {lists?.length ? <section id="profile-watchlist" className="profile-section"><div className="section-topline"><div><p className="eyebrow">Kept together</p><h2>Public collections</h2></div></div><div className="profile-lists">{lists.map((list) => <article key={list._id}><h3>{list.name}</h3><p>{list.description || `${list.orderedItems.length} titles`}</p><span>{list.orderedItems.length} {list.orderedItems.length === 1 ? 'title' : 'titles'}</span></article>)}</div></section> : null}
     {!stats && !recent?.length && !lists?.length && !ratings?.length && !reviews?.length && <EmptyState title="A watchline takes shape over time" description={`@${profile.username} has not made public sections available yet.`} />}
     <footer className="profile-footer"><span>showgraphy</span><span>A personal record of what moved you.</span></footer>

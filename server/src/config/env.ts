@@ -31,6 +31,9 @@ const envSchema = z.object({
   TMDB_API_KEY: z.string().optional(),
   TMDB_READ_ACCESS_TOKEN: z.string().optional(),
   ANILIST_GRAPHQL_URL: z.string().default('https://graphql.anilist.co'),
+  CLOUDINARY_CLOUD_NAME: z.string().optional(),
+  CLOUDINARY_API_KEY: z.string().optional(),
+  CLOUDINARY_API_SECRET: z.string().optional(),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(1000),
 });

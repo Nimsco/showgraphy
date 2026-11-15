@@ -19,9 +19,15 @@ All models use timestamps and explicit indexes. IDs are Mongo ObjectIds. The use
 | Conversation | Exactly two participants, a canonical sorted pair key, pending/accepted/declined request status, last-message summary, and per-participant read timestamps. Unique `pairKey` prevents duplicate direct conversations. |
 | DirectMessage | Conversation, authenticated sender, bounded text, client idempotency key, and timestamps. Unique `(senderId,clientMessageId)` and conversation cursor index. |
 | Notification | Recipient, actor, type, optional resource, and read timestamp. Indexed by recipient/time and unread status; unique event key prevents duplicates. |
-| SocialReport | Reporter, reported user, optional direct-message reference, reason, details, status, and timestamps. |
+| SocialReport | Reporter, reported user, optional direct-message, community post, or comment reference, reason, details, status, and timestamps. Community reports are unique per reporter and target. |
+| CommunityPost | Author, text, category, canonical `MediaTitle` ObjectId references with small display snapshots, Cloudinary image metadata, mention user references, optional spoiler metadata and poll, denormalized interaction counts, and soft-delete/edit timestamps. Indexed for feed, author, title, text search, and unique image ownership. |
+| CommunityPostLike | One like per `(post,user)` with a unique compound index and user/time index. |
+| CommunityPostBookmark | Private saved-post edge, unique per `(post,user)` with user/time index. |
+| CommunityComment | Post, author, optional one-level parent, bounded text, mention references, edit and soft-delete timestamps. Indexed by post/thread/time. |
+| CommunityPollVote | One option per `(post,user)` with a unique compound index; option counts are grouped from vote records. |
+| CommunityUploadReservation | Owner-scoped Cloudinary public ID and 72-hour expiration; the server cleanup pass removes expired assets that were never attached to a post. |
 
-Relationships: a user has many library entries, lists, refresh sessions, and community ratings. Entries and ratings reference one normalized title. Lists contain ordered title references. Shares reference one list and its owner. Deleting an account removes owned records, shares, and sessions; ratings can be removed or anonymized by the account deletion service.
+Relationships: a user has many library entries, lists, refresh sessions, and community ratings. Entries and ratings reference one normalized title. Community posts reference one author and any number of canonical titles, and may have images, mentions, a poll, likes, bookmarks, comments, and votes. Lists contain ordered title references. Shares reference one list and its owner. Deleting an account removes owned community posts, interactions, reports, and sessions; comments left on other posts become removed placeholders and update counts.
 
 Catalog caching and an activity log remain optional follow-up models. Email verification and password reset tokens are included in `EmailActionToken`.
 

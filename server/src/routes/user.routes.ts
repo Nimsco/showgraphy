@@ -2,7 +2,8 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { z } from 'zod';
 import { authenticate, authenticateOptional } from '../middleware/authenticate.js';
-import { Block, CommunityRating, Conversation, DirectMessage, EmailActionToken, Follow, ListShare, MediaTitle, Notification, RefreshSession, SocialReport, TitleReview, User, UserLibraryEntry, UserList } from '../models/index.js';
+import { Block, CommunityComment, CommunityPollVote, CommunityPost, CommunityPostBookmark, CommunityPostLike, CommunityRating, CommunityUploadReservation, Conversation, DirectMessage, EmailActionToken, Follow, ListShare, MediaTitle, Notification, RefreshSession, SocialReport, TitleReview, User, UserLibraryEntry, UserList } from '../models/index.js';
+import { destroyCommunityImage } from '../services/community-media.service.js';
 import { clearRefreshCookie, safeUser } from '../services/auth.service.js';
 import { getUserStatistics } from '../services/statistics.service.js';
 import { HttpError, route } from '../utils/http.js';
@@ -104,6 +105,15 @@ usersRouter.delete('/me', authenticate, route(async (request, response) => {
   const userId = request.auth!.userId;
   const conversations = await Conversation.find({ participants: userId }).select('_id').lean();
   const conversationIds = conversations.map((conversation) => conversation._id);
+  const communityPosts = await CommunityPost.find({ author: userId }).select('_id images').lean();
+  const pendingCommunityUploads = await CommunityUploadReservation.find({ owner: userId }).select('publicId').lean();
+  const communityPostIds = communityPosts.map((post) => post._id);
+  const commentsToRemove = await CommunityComment.find({ post: { $in: communityPostIds } }).select('_id').lean();
+  const ownCommentCounts = await CommunityComment.aggregate<{ _id: mongoose.Types.ObjectId; count: number }>([
+    { $match: { author: new mongoose.Types.ObjectId(userId), deletedAt: null, post: { $nin: communityPostIds } } },
+    { $group: { _id: '$post', count: { $sum: 1 } } },
+  ]);
+  const removedCommentIds = [...commentsToRemove.map((comment) => comment._id), ...(await CommunityComment.find({ author: userId }).select('_id').lean()).map((comment) => comment._id)];
   const ratings = await CommunityRating.find({ userId }).select('titleId').lean();
   const affected = [...new Set(ratings.map((rating) => String(rating.titleId)))];
   await Promise.all([
@@ -112,17 +122,28 @@ usersRouter.delete('/me', authenticate, route(async (request, response) => {
     UserLibraryEntry.deleteMany({ userId }),
     CommunityRating.deleteMany({ userId }),
     TitleReview.deleteMany({ userId }),
+    CommunityPost.deleteMany({ author: userId }),
+    CommunityUploadReservation.deleteMany({ owner: userId }),
+    CommunityComment.deleteMany({ post: { $in: communityPostIds } }),
+    CommunityComment.updateMany({ author: userId, post: { $nin: communityPostIds }, deletedAt: null }, { $set: { content: 'This comment was removed.', mentions: [], deletedAt: new Date() } }),
+    CommunityPostLike.deleteMany({ $or: [{ post: { $in: communityPostIds } }, { user: userId }] }),
+    CommunityPostBookmark.deleteMany({ $or: [{ post: { $in: communityPostIds } }, { user: userId }] }),
+    CommunityPollVote.deleteMany({ $or: [{ post: { $in: communityPostIds } }, { user: userId }] }),
     EmailActionToken.deleteMany({ userId }),
     Follow.deleteMany({ $or: [{ follower: userId }, { following: userId }] }),
     Block.deleteMany({ $or: [{ blocker: userId }, { blockedUser: userId }] }),
     Notification.deleteMany({ $or: [{ recipient: userId }, { actor: userId }] }),
     SocialReport.deleteMany({ $or: [{ reporter: userId }, { reportedUser: userId }] }),
+    Notification.deleteMany({ resourceId: { $in: [...communityPostIds, ...removedCommentIds] } }),
     Conversation.deleteMany({ participants: userId }),
     DirectMessage.deleteMany({ senderId: userId }),
     DirectMessage.deleteMany({ conversationId: { $in: conversationIds } }),
     RefreshSession.deleteMany({ userId }),
     User.deleteOne({ _id: userId }),
   ]);
+  await Promise.all(ownCommentCounts.map((entry) => CommunityPost.updateOne({ _id: entry._id, commentCount: { $gte: entry.count } }, { $inc: { commentCount: -entry.count } })));
+  await Promise.allSettled(communityPosts.flatMap((post) => post.images.map((image) => destroyCommunityImage(image.publicId))));
+  await Promise.allSettled(pendingCommunityUploads.map((upload) => destroyCommunityImage(upload.publicId)));
   await Promise.all(affected.map(async (id) => {
     const titleId = new mongoose.Types.ObjectId(id);
     const rows = await CommunityRating.aggregate<{ average: number; count: number }>([{ $match: { titleId } }, { $group: { _id: null, average: { $avg: '$rating' }, count: { $sum: 1 } } }]);

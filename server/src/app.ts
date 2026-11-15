@@ -13,6 +13,7 @@ import { listsRouter, sharesRouter } from './routes/lists.routes.js';
 import { usersRouter } from './routes/user.routes.js';
 import { chatRouter } from './routes/chat.routes.js';
 import { socialRouter } from './routes/social.routes.js';
+import { communityRouter } from './routes/community.routes.js';
 import { errorHandler } from './utils/http.js';
 
 export const app = express();
@@ -63,6 +64,7 @@ app.use('/api/shares', sharesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/social', socialRouter);
+app.use('/api/community', communityRouter);
 app.use('/api/stats', statsRouter);
 
 app.use(errorHandler);

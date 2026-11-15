@@ -1,0 +1,254 @@
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowUpRight, Bookmark, Check, ChevronLeft, ChevronRight, Flag, Heart, ImagePlus, MessageCircle, MoreHorizontal, Plus, Search, Send, Shield, Sparkles, Trash2, X } from 'lucide-react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Button, EmptyState, LoadingLine, PageHeading, Poster } from '../components/ui';
+import { useAuth } from '../contexts/AuthContext';
+import { apiRequest } from '../lib/api';
+import type { MediaTitle } from '../types';
+
+type Person = { _id?: string; id?: string; username: string; avatar?: string; bio?: string; isFollowing?: boolean };
+type TitleReference = { titleId: string; title: string; poster?: string; mediaType: 'movie' | 'series'; releaseDate?: string };
+type CommunityImage = { publicId: string; secureUrl: string; version: number; width: number; height: number; format: string; bytes: number };
+type Poll = { question: string; options: string[]; counts?: number[]; totalVotes?: number; myVote?: number | null; expiresAt?: string; closed?: boolean };
+type Post = { _id: string; author: Person; content: string; category: string; mediaReferences: TitleReference[]; images?: CommunityImage[]; mentions?: Person[]; containsSpoilers: boolean; spoilerDescription?: string; poll?: Poll; likeCount: number; commentCount: number; bookmarkCount: number; createdAt: string; isEdited?: boolean; isLiked: boolean; isBookmarked: boolean };
+type Comment = { _id: string; post: string; author: Person; content: string; mentions?: Person[]; createdAt: string; editedAt?: string; deletedAt?: string; parentComment?: string | null; replies?: Comment[] };
+type Page<T> = { items: T[]; page: number; hasMore: boolean };
+type UploadSignature = { allowed_formats: string; folder: string; public_id: string; timestamp: number; overwrite: string; signature: string; cloudName: string; apiKey: string };
+const categoryNames: Record<string, string> = { discussion: 'Discussion', question: 'Question', recommendation: 'Recommendation', general: 'General' };
+function timeSince(value: string) { const minutes = Math.max(1, Math.floor((Date.now() - new Date(value).getTime()) / 60000)); return minutes < 60 ? `${minutes}m` : minutes < 1440 ? `${Math.floor(minutes / 60)}h` : new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
+function Avatar({ person }: { person: Person }) { return <span className="community-avatar">{person.avatar ? <img src={person.avatar} alt="" /> : person.username.slice(0, 1).toUpperCase()}</span>; }
+function TitleReferenceCard({ title }: { title: TitleReference }) { return <Link className="community-title-ref" to={`/app/title/${title.titleId}`}><span className="community-title-ref__poster">{title.poster ? <img src={title.poster} alt="" /> : title.title.slice(0, 1)}</span><span><strong>{title.title}</strong><small>{title.mediaType === 'movie' ? 'Film' : 'Series'}{title.releaseDate ? ` · ${new Date(title.releaseDate).getFullYear()}` : ''}</small></span><ArrowUpRight size={16} /></Link>; }
+
+function MentionText({ content, mentions = [] }: { content: string; mentions?: Person[] }) {
+  const usernames = new Set(mentions.map((person) => person.username.toLowerCase()));
+  const pattern = /@[a-z0-9_]{3,24}/gi;
+  const pieces: ReactNode[] = [];
+  let cursor = 0;
+  for (const match of content.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) pieces.push(content.slice(cursor, index));
+    const username = match[0].slice(1);
+    pieces.push(usernames.has(username.toLowerCase()) ? <Link key={`${index}-${username}`} to={`/u/${username}`}>{match[0]}</Link> : match[0]);
+    cursor = index + match[0].length;
+  }
+  if (cursor < content.length) pieces.push(content.slice(cursor));
+  return <>{pieces}</>;
+}
+
+function ReportDialog({ resourcePath, label, onClose }: { resourcePath: string; label: string; onClose: () => void }) {
+  const [reason, setReason] = useState<'spam' | 'harassment' | 'inappropriate-content' | 'unmarked-spoiler' | 'other'>('spam');
+  const [details, setDetails] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('');
+    try { await apiRequest(resourcePath, { method: 'POST', body: JSON.stringify({ reason, details }) }); onClose(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'The report could not be sent.'); }
+    finally { setBusy(false); }
+  }
+  return <div className="dialog-scrim community-dialog" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="community-report-title"><div className="dialog-header"><div><p className="eyebrow">Keep the room welcoming</p><h2 id="community-report-title">Report {label}</h2></div><button type="button" className="icon-button" aria-label="Close report dialog" disabled={busy} onClick={onClose}><X size={18} /></button></div><form onSubmit={(event) => void submit(event)}><label>Reason<select value={reason} onChange={(event) => setReason(event.target.value as typeof reason)}><option value="spam">Spam</option><option value="harassment">Harassment</option><option value="inappropriate-content">Inappropriate content</option><option value="unmarked-spoiler">Unmarked spoiler</option><option value="other">Other</option></select></label><label>Details (optional)<textarea rows={3} maxLength={500} value={details} onChange={(event) => setDetails(event.target.value)} placeholder="Add context for the moderation team" /></label>{error && <p className="form-alert" role="alert">{error}</p>}<div className="dialog-actions"><Button type="button" variant="outline" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send report'}</Button></div></form></section></div>;
+}
+
+function PostCard({ post, onDelete }: { post: Post; onDelete?: (post: Post) => void }) {
+  const client = useQueryClient();
+  const { user } = useAuth();
+  const deletePost = useDeletePost();
+  const [revealed, setRevealed] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(post.content);
+  const [imageIndex, setImageIndex] = useState<number | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const [error, setError] = useState('');
+  const [liked, setLiked] = useState(post.isLiked);
+  const [likeCount, setLikeCount] = useState(post.likeCount);
+  const [bookmarked, setBookmarked] = useState(post.isBookmarked);
+  const [optimisticVote, setOptimisticVote] = useState<number | null>(null);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [bookmarkBusy, setBookmarkBusy] = useState(false);
+  const own = user?.id === post.author._id || user?.id === post.author.id;
+  useEffect(() => { setLiked(post.isLiked); setLikeCount(post.likeCount); setBookmarked(post.isBookmarked); }, [post.isLiked, post.likeCount, post.isBookmarked]);
+  const voted = optimisticVote ?? post.poll?.myVote ?? null;
+  const pollVisible = post.poll && (voted != null || post.poll.closed);
+  async function like() { if (likeBusy) return; setLikeBusy(true); const previous = liked; setLiked(!previous); setLikeCount((count) => count + (previous ? -1 : 1)); setError(''); try { await apiRequest(`/community/posts/${post._id}/like`, { method: previous ? 'DELETE' : 'POST' }); await client.invalidateQueries({ queryKey: ['community'] }); } catch (cause) { setLiked(previous); setLikeCount((count) => count + (previous ? 1 : -1)); setError(cause instanceof Error ? cause.message : 'Like could not be updated.'); } finally { setLikeBusy(false); } }
+  async function bookmark() { if (bookmarkBusy) return; setBookmarkBusy(true); const previous = bookmarked; setBookmarked(!previous); setError(''); try { await apiRequest(`/community/posts/${post._id}/bookmark`, { method: previous ? 'DELETE' : 'POST' }); await client.invalidateQueries({ queryKey: ['community'] }); } catch (cause) { setBookmarked(previous); setError(cause instanceof Error ? cause.message : 'Bookmark could not be updated.'); } finally { setBookmarkBusy(false); } }
+  async function share() { const url = new URL(`/community/post/${post._id}`, window.location.origin).toString(); try { await navigator.clipboard.writeText(url); setError('Link copied.'); window.setTimeout(() => setError(''), 1800); } catch { window.prompt('Copy this discussion link', url); } }
+  async function vote(optionIndex: number) { setOptimisticVote(optionIndex); setError(''); try { await apiRequest(`/community/posts/${post._id}/poll-vote`, { method: 'POST', body: JSON.stringify({ optionIndex }) }); await client.invalidateQueries({ queryKey: ['community'] }); } catch (cause) { setOptimisticVote(null); setError(cause instanceof Error ? cause.message : 'Your vote could not be saved.'); } }
+  async function saveEdit(event: FormEvent) { event.preventDefault(); try { await apiRequest(`/community/posts/${post._id}`, { method: 'PATCH', body: JSON.stringify({ content: editText, mentionIds: post.mentions?.filter((person) => editText.toLowerCase().includes(`@${person.username.toLowerCase()}`)).map((person) => String(person.id ?? person._id)) ?? [] }) }); setEditing(false); await client.invalidateQueries({ queryKey: ['community'] }); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your edit could not be saved.'); } }
+  useEffect(() => {
+    if (imageIndex === null) return;
+    const handle = (event: KeyboardEvent) => { if (event.key === 'Escape') setImageIndex(null); if (event.key === 'ArrowRight') setImageIndex((index) => index === null ? null : (index + 1) % (post.images?.length ?? 1)); if (event.key === 'ArrowLeft') setImageIndex((index) => index === null ? null : (index - 1 + (post.images?.length ?? 1)) % (post.images?.length ?? 1)); };
+    window.addEventListener('keydown', handle); return () => window.removeEventListener('keydown', handle);
+  }, [imageIndex, post.images?.length]);
+  return <article className="community-post">
+    <header className="community-post__header"><Link to={`/u/${post.author.username}`}><Avatar person={post.author} /></Link><div className="community-post__byline"><Link to={`/u/${post.author.username}`}><strong>@{post.author.username}</strong></Link><time>{timeSince(post.createdAt)}{post.isEdited ? ' · edited' : ''}</time></div><span className={`community-category community-category--${post.category}`}>{categoryNames[post.category] ?? post.category}</span><div className="community-post__menu-wrap"><button className="icon-button" type="button" aria-label="Post options" onClick={() => setMenu((value) => !value)}><MoreHorizontal size={18} /></button>{menu && <div className="community-post__menu">{own && <><button type="button" onClick={() => { setMenu(false); setEditText(post.content); setEditing(true); }}>Edit discussion</button><button type="button" onClick={() => { setMenu(false); if (onDelete) onDelete(post); else void deletePost(post); }}><Trash2 size={14} /> Delete discussion</button></>}{!own && <button type="button" onClick={() => { setMenu(false); setReporting(true); }}><Flag size={14} /> Report discussion</button>}<button type="button" onClick={() => void share()}><ArrowUpRight size={14} /> Copy link</button></div>}</div></header>
+    {editing ? <form className="community-edit-form" onSubmit={(event) => void saveEdit(event)}><textarea value={editText} maxLength={4000} onChange={(event) => setEditText(event.target.value)} aria-label="Edit discussion text" /><div><Button variant="outline" type="button" onClick={() => setEditing(false)}>Cancel</Button><Button type="submit" disabled={!editText.trim()}>Save changes</Button></div></form> : post.containsSpoilers && !revealed ? <button className="community-spoiler" type="button" onClick={() => setRevealed(true)}><Shield size={20} /><strong>Spoiler warning</strong><span>{post.spoilerDescription || 'Reveal this discussion'}</span><small>Tap to reveal</small></button> : <>
+      {post.content && <p className="community-post__text"><MentionText content={post.content} mentions={post.mentions} /></p>}
+      {post.mediaReferences.map((title) => <TitleReferenceCard key={title.titleId} title={title} />)}
+      {!!post.images?.length && <div className={`community-images${post.images.length === 1 ? ' community-images--single' : ''}`}>{post.images.map((image, index) => <button type="button" key={image.publicId} onClick={() => setImageIndex(index)} aria-label={`Open image ${index + 1}`}><img src={image.secureUrl} alt={`Discussion attachment ${index + 1}`} loading="lazy" /></button>)}</div>}
+      {post.poll && <div className="community-poll"><span className="eyebrow">Community poll</span><strong>{post.poll.question}</strong><div className="community-poll__options">{post.poll.options.map((option, index) => { const count = (post.poll?.counts?.[index] ?? 0) + (optimisticVote === index && post.poll?.myVote == null ? 1 : 0); const total = (post.poll?.totalVotes ?? 0) + (optimisticVote != null && post.poll?.myVote == null ? 1 : 0); const percent = total ? Math.round(count * 100 / total) : 0; return pollVisible ? <div className={`community-poll__result${voted === index ? ' is-selected' : ''}`} key={`${option}-${index}`}><span style={{ width: `${percent}%` }} /><b>{option}{voted === index && <Check size={13} />}</b><small>{percent}% · {count}</small></div> : <button type="button" className="community-poll__option" key={`${option}-${index}`} onClick={() => void vote(index)}>{option}</button>; })}</div><small className="community-poll__meta">{(post.poll.totalVotes ?? 0) + (optimisticVote != null && post.poll.myVote == null ? 1 : 0)} {(post.poll.totalVotes ?? 0) + (optimisticVote != null && post.poll.myVote == null ? 1 : 0) === 1 ? 'vote' : 'votes'} · {post.poll.closed ? 'Poll closed' : voted != null ? 'Your vote is recorded' : 'Choose one option'}</small></div>}
+    </>}
+    {error && <p className="community-inline-status" role="status">{error}</p>}
+    <footer className="community-post__actions"><button type="button" className={liked ? 'is-active' : ''} onClick={() => void like()} disabled={likeBusy} aria-label={liked ? 'Unlike post' : 'Like post'}><Heart size={17} fill={liked ? 'currentColor' : 'none'} /><span>{likeCount}</span></button><Link to={`/community/post/${post._id}`} aria-label="View comments"><MessageCircle size={17} /><span>{post.commentCount}</span></Link><button type="button" className={bookmarked ? 'is-active' : ''} onClick={() => void bookmark()} disabled={bookmarkBusy} aria-label={bookmarked ? 'Remove bookmark' : 'Save post'}><Bookmark size={17} fill={bookmarked ? 'currentColor' : 'none'} /></button><button type="button" onClick={() => void share()} aria-label="Share post"><ArrowUpRight size={17} /></button><Link className="community-post__open" to={`/community/post/${post._id}`}>Discuss <ArrowUpRight size={14} /></Link></footer>
+    {reporting && <ReportDialog resourcePath={`/community/posts/${post._id}/report`} label="discussion" onClose={() => setReporting(false)} />}
+    {imageIndex !== null && post.images?.[imageIndex] && <div className="community-lightbox" role="dialog" aria-modal="true" aria-label="Discussion image viewer" onMouseDown={(event) => { if (event.target === event.currentTarget) setImageIndex(null); }}><button type="button" className="community-lightbox__close" aria-label="Close image viewer" onClick={() => setImageIndex(null)}><X size={22} /></button>{post.images.length > 1 && <button type="button" className="community-lightbox__prev" aria-label="Previous image" onClick={() => setImageIndex((imageIndex - 1 + post.images!.length) % post.images!.length)}><ChevronLeft /></button>}<img src={post.images[imageIndex].secureUrl} alt={`Discussion image ${imageIndex + 1} of ${post.images.length}`} /><span>{imageIndex + 1} / {post.images.length}</span>{post.images.length > 1 && <button type="button" className="community-lightbox__next" aria-label="Next image" onClick={() => setImageIndex((imageIndex + 1) % post.images!.length)}><ChevronRight /></button>}</div>}
+  </article>;
+}
+
+async function uploadImage(file: File, onProgress: (progress: number) => void): Promise<CommunityImage> {
+  const signature = await apiRequest<UploadSignature>('/community/uploads/signature', { method: 'POST' });
+  const form = new FormData(); form.append('file', file); form.append('api_key', signature.apiKey); form.append('timestamp', String(signature.timestamp)); form.append('signature', signature.signature); form.append('folder', signature.folder); form.append('public_id', signature.public_id); form.append('allowed_formats', signature.allowed_formats); form.append('overwrite', signature.overwrite);
+  const result = await new Promise<{ public_id: string; secure_url: string; version: number; width: number; height: number; format: string; bytes: number }>((resolve, reject) => {
+    const request = new XMLHttpRequest(); request.open('POST', `https://api.cloudinary.com/v1_1/${encodeURIComponent(signature.cloudName)}/image/upload`); request.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(Math.round(event.loaded * 100 / event.total)); }; request.onerror = () => reject(new Error('Image upload failed. Check your connection and try again.')); request.onload = () => { const data = JSON.parse(request.responseText || '{}') as { public_id?: string; secure_url?: string; version?: number; width?: number; height?: number; format?: string; bytes?: number; error?: { message?: string } }; if (request.status < 200 || request.status >= 300 || !data.public_id || !data.secure_url || !data.version || !data.width || !data.height || !data.format || !data.bytes) reject(new Error(data.error?.message ?? 'Image upload failed.')); else resolve(data as Required<typeof data>); }; request.send(form);
+  });
+  return { publicId: result.public_id, secureUrl: result.secure_url, version: result.version, width: result.width, height: result.height, format: result.format, bytes: result.bytes };
+}
+
+function PostComposer({ initialTitleId, onCreated }: { initialTitleId?: string; onCreated?: () => void }) {
+  const client = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const [content, setContent] = useState('');
+  const [category, setCategory] = useState<'discussion' | 'question' | 'recommendation' | 'general'>('discussion');
+  const [spoiler, setSpoiler] = useState(false);
+  const [spoilerDescription, setSpoilerDescription] = useState('');
+  const [titleSearch, setTitleSearch] = useState('');
+  const [titlePicker, setTitlePicker] = useState(Boolean(initialTitleId || searchParams.get('titleId')));
+  const [references, setReferences] = useState<TitleReference[]>([]);
+  const [images, setImages] = useState<CommunityImage[]>([]);
+  const [selectedMentions, setSelectedMentions] = useState<Person[]>([]);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [pollEnabled, setPollEnabled] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
+  const [pollExpires, setPollExpires] = useState('');
+  const [queryText, setQueryText] = useState('');
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
+  const pendingImages = useRef<CommunityImage[]>([]);
+  useEffect(() => () => { for (const image of pendingImages.current) void apiRequest('/community/uploads/delete', { method: 'POST', body: JSON.stringify({ publicId: image.publicId }) }).catch(() => undefined); }, []);
+  const titleQuery = useQuery({ queryKey: ['community-title-search', titleSearch], queryFn: () => apiRequest<{ items: MediaTitle[] }>(`/catalog/search?q=${encodeURIComponent(titleSearch)}`), enabled: titleSearch.trim().length >= 2 });
+  const mentionMatch = queryText.match(/(?:^|\s)@([a-zA-Z0-9_]{0,24})$/);
+  const mentionQuery = useQuery({ queryKey: ['community-mention-search', mentionMatch?.[1]], queryFn: () => apiRequest<Page<Person>>(`/social/people?q=${encodeURIComponent(mentionMatch?.[1] ?? '')}&limit=5`), enabled: Boolean(mentionMatch) });
+  const initialId = initialTitleId || searchParams.get('titleId') || undefined;
+  const initialTitle = useQuery({ queryKey: ['community-compose-title', initialId], queryFn: () => apiRequest<{ item: MediaTitle }>(`/catalog/${initialId}`), enabled: Boolean(initialId) });
+  useEffect(() => { const item = initialTitle.data?.item; if (item && !references.length) setReferences([{ titleId: item._id, title: item.title, poster: item.poster, mediaType: item.mediaType, releaseDate: item.releaseDate }]); }, [initialTitle.data?.item]);
+  function attach(title: MediaTitle) { setReferences((items) => items.some((item) => item.titleId === title._id) ? items : [...items, { titleId: title._id, title: title.title, poster: title.poster, mediaType: title.mediaType, releaseDate: title.releaseDate }]); setTitleSearch(''); setTitlePicker(false); }
+  function mention(person: Person) { const username = person.username; const value = content.replace(/(?:^|\s)@[a-zA-Z0-9_]{0,24}$/, (match) => `${match.startsWith(' ') ? ' ' : ''}@${username} `); setContent(value); setSelectedMentions((items) => [...items.filter((item) => item.username !== person.username), person]); setQueryText(''); textRef.current?.focus(); }
+  async function addImages(files: FileList | null) {
+    if (!files?.length) return; const selected = Array.from(files);
+    if (images.length + selected.length > 4) { setError('A discussion can include up to four images.'); return; }
+    if (selected.some((file) => !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024)) { setError('Choose JPEG, PNG, or WebP images up to 8 MB each.'); return; }
+    setError(''); setUploading(true);
+    try { for (const file of selected) { setUploadProgress(0); const image = await uploadImage(file, setUploadProgress); pendingImages.current.push(image); setImages((current) => [...current, image]); } }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'An image could not be uploaded.'); }
+    finally { setUploading(false); setUploadProgress(0); if (imageInput.current) imageInput.current.value = ''; }
+  }
+  async function removeImage(image: CommunityImage) { try { await apiRequest('/community/uploads/delete', { method: 'POST', body: JSON.stringify({ publicId: image.publicId }) }); pendingImages.current = pendingImages.current.filter((item) => item.publicId !== image.publicId); setImages((items) => items.filter((item) => item.publicId !== image.publicId)); } catch (cause) { setError(cause instanceof Error ? cause.message : 'The image could not be removed.'); } }
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setError(''); setSaving(true);
+    const poll = pollEnabled ? { question: pollQuestion.trim(), options: pollOptions.map((item) => item.trim()), ...(pollExpires ? { expiresAt: new Date(pollExpires).toISOString() } : {}) } : undefined;
+    try {
+      await apiRequest('/community/posts', { method: 'POST', body: JSON.stringify({ content, category, titleIds: references.map((item) => item.titleId), images: images.map(({ publicId, version }) => ({ publicId, version })), mentionIds: selectedMentions.map((person) => String(person.id ?? person._id)), containsSpoilers: spoiler, spoilerDescription, poll }) });
+      pendingImages.current = []; setContent(''); setReferences([]); setImages([]); setSelectedMentions([]); setSpoiler(false); setSpoilerDescription(''); setPollEnabled(false); setPollQuestion(''); setPollOptions(['', '']); setPollExpires(''); await client.invalidateQueries({ queryKey: ['community'] }); onCreated?.();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your post could not be published.'); }
+    finally { setSaving(false); }
+  }
+  return <form className="community-composer" onSubmit={(event) => void submit(event)}>
+    <div className="community-composer__top"><Sparkles size={16} /><span>Start a conversation</span><span className="community-character-count">{content.length}/4000</span></div>
+    <textarea ref={textRef} value={content} maxLength={4000} onChange={(event) => { const next = event.target.value; setContent(next); setSelectedMentions((items) => items.filter((person) => next.toLowerCase().includes(`@${person.username.toLowerCase()}`))); setQueryText(next.slice(0, event.target.selectionStart)); }} placeholder="What stayed with you?" aria-label="Write your post" />
+    {mentionMatch && mentionQuery.data?.items.length ? <div className="community-autocomplete">{mentionQuery.data.items.map((person) => <button type="button" key={person.id} onClick={() => mention(person)}><Avatar person={person} /> @{person.username}</button>)}</div> : null}
+    {references.length > 0 && <div className="community-composer__references">{references.map((title) => <div className="community-composer__reference" key={title.titleId}><TitleReferenceCard title={title} /><button type="button" aria-label={`Remove ${title.title}`} onClick={() => setReferences((items) => items.filter((item) => item.titleId !== title.titleId))}><X size={15} /></button></div>)}</div>}
+    {titlePicker && <div className="community-title-picker"><label className="social-search"><Search size={16} /><input value={titleSearch} onChange={(event) => setTitleSearch(event.target.value)} placeholder="Search movies, anime, and series" autoFocus /></label>{titleQuery.isFetching && <small>Searching titles…</small>}{titleQuery.data?.items.slice(0, 6).map((title) => <button type="button" key={title._id} onClick={() => attach(title)}><Poster title={title} size="small" /><span><strong>{title.title}</strong><small>{title.mediaType === 'movie' ? 'Film' : 'Series'} · {title.releaseDate?.slice(0, 4)}</small></span></button>)}</div>}
+    {images.length > 0 && <div className="community-composer__images">{images.map((image) => <div key={image.publicId}><img src={image.secureUrl} alt="Image preview" /><button type="button" aria-label="Remove image" onClick={() => void removeImage(image)}><X size={14} /></button></div>)}</div>}
+    {uploading && <div className="community-upload-progress"><span>Uploading image… {uploadProgress}%</span><progress value={uploadProgress} max={100} /></div>}
+    {spoiler && <label className="community-spoiler-label">Spoiler note<input value={spoilerDescription} onChange={(event) => setSpoilerDescription(event.target.value)} maxLength={120} placeholder="What does this spoil?" /></label>}
+    {pollEnabled && <div className="community-poll-editor"><label>Poll question<input value={pollQuestion} onChange={(event) => setPollQuestion(event.target.value)} maxLength={180} placeholder="Ask your community" required /></label>{pollOptions.map((option, index) => <div key={index}><input aria-label={`Poll option ${index + 1}`} value={option} onChange={(event) => setPollOptions((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} maxLength={80} placeholder={`Option ${index + 1}`} required /><button type="button" aria-label={`Remove option ${index + 1}`} disabled={pollOptions.length <= 2} onClick={() => setPollOptions((items) => items.filter((_, itemIndex) => itemIndex !== index))}><X size={14} /></button></div>)}{pollOptions.length < 6 && <button type="button" onClick={() => setPollOptions((items) => [...items, ''])}><Plus size={14} /> Add option</button>}<label>Close poll (optional)<input type="datetime-local" value={pollExpires} min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)} onChange={(event) => setPollExpires(event.target.value)} /></label></div>}
+    {error && <p className="form-alert" role="alert">{error}</p>}
+    <footer className="community-composer__footer"><div><button type="button" onClick={() => setTitlePicker((value) => !value)}><Plus size={15} /> Title</button><button type="button" onClick={() => imageInput.current?.click()} disabled={uploading || images.length >= 4}><ImagePlus size={15} /> Image</button><input ref={imageInput} hidden type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => void addImages(event.target.files)} /><button type="button" className={spoiler ? 'is-active' : ''} onClick={() => setSpoiler((value) => !value)}><Shield size={15} /> Spoiler</button><button type="button" className={pollEnabled ? 'is-active' : ''} onClick={() => setPollEnabled((value) => !value)}><Check size={15} /> Poll</button><select value={category} onChange={(event) => setCategory(event.target.value as typeof category)} aria-label="Post category"><option value="discussion">Discussion</option><option value="question">Question</option><option value="recommendation">Recommendation</option><option value="general">General</option></select></div><Button type="submit" disabled={saving || uploading || (!content.trim() && !references.length && !images.length && !pollEnabled) || (pollEnabled && (pollOptions.some((item) => !item.trim()) || !pollQuestion.trim()))}><Send size={15} /> {saving ? 'Publishing…' : 'Post'}</Button></footer>
+  </form>;
+}
+
+function useDeletePost() {
+  const client = useQueryClient();
+  return async (post: Post) => { if (!window.confirm('Delete this discussion?')) return; await apiRequest(`/community/posts/${post._id}`, { method: 'DELETE' }); await client.invalidateQueries({ queryKey: ['community'] }); };
+}
+
+export function CommunityHomePage() {
+  const [searchParams] = useSearchParams();
+  const [feed, setFeed] = useState<'discover' | 'following' | 'trending'>('discover');
+  const [composerOpen, setComposerOpen] = useState(Boolean(searchParams.get('titleId')));
+  const deletePost = useDeletePost();
+  const query = useInfiniteQuery({ queryKey: ['community', 'feed', feed, searchParams.get('titleId')], initialPageParam: 1, queryFn: ({ pageParam }) => apiRequest<Page<Post>>(`/community/posts?feed=${feed}&page=${pageParam}&limit=12${searchParams.get('titleId') ? `&titleId=${encodeURIComponent(searchParams.get('titleId')!)}` : ''}`), getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined });
+  useEffect(() => { if (!composerOpen) return; const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setComposerOpen(false); }; window.addEventListener('keydown', close); return () => window.removeEventListener('keydown', close); }, [composerOpen]);
+  const posts = query.data?.pages.flatMap((page) => page.items) ?? [];
+  return <main className="page-wrap community-page"><PageHeading eyebrow="A shared watchline" title="Community" description="Conversations connected to the stories you watch." action={<Link className="button button--outline" to="/community/saved"><Bookmark size={15} /> Saved</Link>} />
+    <div className="community-toolbar"><nav className="community-tabs" aria-label="Community feeds">{(['discover', 'following', 'trending'] as const).map((value) => <button type="button" key={value} className={feed === value ? 'is-active' : ''} onClick={() => setFeed(value)}>{value[0]!.toUpperCase() + value.slice(1)}</button>)}</nav><div className="community-toolbar__actions"><Link className="community-search-link" to="/community/search"><Search size={16} /> Search</Link><Button onClick={() => setComposerOpen(true)}><Plus size={15} /> New discussion</Button></div></div>
+    {query.isLoading ? <LoadingLine label="Finding discussions" /> : query.error ? <EmptyState title="Community is unavailable" description={query.error instanceof Error ? query.error.message : 'Try again shortly.'} action={<Button variant="outline" onClick={() => void query.refetch()}>Try again</Button>} /> : posts.length ? <div className="community-feed">{posts.map((post) => <PostCard key={post._id} post={post} onDelete={(item) => void deletePost(item)} />)}</div> : <EmptyState title="Start the conversation" description="Share a thought about a film or series to begin the community feed." />}
+    {query.hasNextPage && <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? 'Loading…' : 'Load older discussions'}</Button>}
+    {composerOpen && <div className="community-compose-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setComposerOpen(false); }}><section className="community-compose-dialog" role="dialog" aria-modal="true" aria-labelledby="community-compose-title"><header><div><p className="eyebrow">A shared watchline</p><h2 id="community-compose-title">Create discussion</h2></div><button type="button" className="icon-button" aria-label="Close composer" onClick={() => setComposerOpen(false)}><X size={19} /></button></header><PostComposer initialTitleId={searchParams.get('titleId') ?? undefined} onCreated={() => setComposerOpen(false)} /></section></div>}
+  </main>;
+}
+
+function CommentThread({ comment, onReply }: { comment: Comment; onReply: (commentId: string) => void }) {
+  const client = useQueryClient(); const { user } = useAuth();
+  const [reporting, setReporting] = useState<string | null>(null); const [editingId, setEditingId] = useState<string | null>(null); const [text, setText] = useState(comment.content); const [error, setError] = useState('');
+  async function edit(item: Comment) { try { await apiRequest(`/community/comments/${item._id}`, { method: 'PATCH', body: JSON.stringify({ content: text, mentionIds: item.mentions?.filter((person) => text.toLowerCase().includes(`@${person.username.toLowerCase()}`)).map((person) => String(person.id ?? person._id)) ?? [] }) }); setEditingId(null); await client.invalidateQueries({ queryKey: ['community', 'comments', comment.post] }); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Comment could not be edited.'); } }
+  async function remove(item: Comment) { if (!window.confirm('Delete this comment?')) return; try { await apiRequest(`/community/comments/${item._id}`, { method: 'DELETE' }); await client.invalidateQueries({ queryKey: ['community', 'comments', comment.post] }); await client.invalidateQueries({ queryKey: ['community', 'post', comment.post] }); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Comment could not be deleted.'); } }
+  function itemView(item: Comment, isReply = false) { const own = user?.id === item.author._id || user?.id === item.author.id; return <article className={`community-comment${isReply ? ' community-comment--reply' : ''}`} key={item._id}><Avatar person={item.author} /><div className="community-comment__body"><header><Link to={`/u/${item.author.username}`}>@{item.author.username}</Link><time>{timeSince(item.createdAt)}{item.editedAt ? ' · edited' : ''}</time></header>{editingId === item._id ? <form onSubmit={(event) => { event.preventDefault(); void edit(item); }}><textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} /><div><Button type="button" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button><Button type="submit" disabled={!text.trim()}>Save</Button></div></form> : <p>{item.deletedAt ? 'This comment was removed.' : <MentionText content={item.content} mentions={item.mentions} />}</p>}{!item.deletedAt && <div className="community-comment__actions">{!isReply && <button type="button" onClick={() => onReply(item._id)}>Reply</button>}{own ? <><button type="button" onClick={() => { setText(item.content); setEditingId(item._id); }}>Edit</button><button type="button" onClick={() => void remove(item)}>Delete</button></> : <button type="button" onClick={() => setReporting(item._id)}>Report</button>}</div>}{item.replies?.map((reply) => itemView(reply, true))}{error && <p className="form-alert" role="alert">{error}</p>}</div>{reporting === item._id && <ReportDialog resourcePath={`/community/comments/${item._id}/report`} label="comment" onClose={() => setReporting(null)} />}</article>; }
+  return itemView(comment);
+}
+
+export function CommunityPostPage() {
+  const client = useQueryClient(); const navigate = useNavigate(); const { postId = '' } = useParams(); const deletePost = useDeletePost();
+  const post = useQuery({ queryKey: ['community', 'post', postId], queryFn: () => apiRequest<{ item: Post }>(`/community/posts/${postId}`), enabled: Boolean(postId) });
+  const comments = useInfiniteQuery({ queryKey: ['community', 'comments', postId], initialPageParam: 1, queryFn: ({ pageParam }) => apiRequest<Page<Comment>>(`/community/posts/${postId}/comments?page=${pageParam}&limit=25`), getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined, enabled: Boolean(post.data) });
+  const [draft, setDraft] = useState(''); const [replyTo, setReplyTo] = useState<string | null>(null); const [error, setError] = useState(''); const [commentMentions, setCommentMentions] = useState<Person[]>([]); const [commentQueryText, setCommentQueryText] = useState(''); const commentInput = useRef<HTMLTextAreaElement>(null);
+  const commentMentionMatch = commentQueryText.match(/(?:^|\s)@([a-zA-Z0-9_]{0,24})$/);
+  const commentMentionQuery = useQuery({ queryKey: ['community-comment-mention', commentMentionMatch?.[1]], queryFn: () => apiRequest<Page<Person>>(`/social/people?q=${encodeURIComponent(commentMentionMatch?.[1] ?? '')}&limit=5`), enabled: Boolean(commentMentionMatch) });
+  const items = comments.data?.pages.flatMap((page) => page.items) ?? [];
+  function selectCommentMention(person: Person) { const next = draft.replace(/(?:^|\s)@[a-zA-Z0-9_]{0,24}$/, (match) => `${match.startsWith(' ') ? ' ' : ''}@${person.username} `); setDraft(next); setCommentMentions((items) => [...items.filter((item) => item.username !== person.username), person]); setCommentQueryText(''); commentInput.current?.focus(); }
+  async function submit(event: FormEvent) { event.preventDefault(); if (!draft.trim()) return; try { setError(''); await apiRequest(`/community/posts/${postId}/comments`, { method: 'POST', body: JSON.stringify({ content: draft, parentCommentId: replyTo || undefined, mentionIds: commentMentions.map((person) => String(person.id ?? person._id)) }) }); setDraft(''); setCommentMentions([]); setReplyTo(null); await client.invalidateQueries({ queryKey: ['community', 'comments', postId] }); await client.invalidateQueries({ queryKey: ['community', 'post', postId] }); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Comment could not be posted.'); } }
+  if (post.isLoading) return <main className="page-wrap"><LoadingLine label="Opening discussion" /></main>;
+  if (!post.data) return <main className="page-wrap"><EmptyState title="Discussion unavailable" description="This discussion may have been removed or is not available to your account." action={<Link to="/community" className="button button--outline">Back to Community</Link>} /></main>;
+  return <main className="page-wrap community-page community-detail"><Link className="inline-arrow" to="/community"><ArrowUpRight size={15} /> Community</Link><PostCard post={post.data.item} onDelete={(item) => { void deletePost(item).then(() => navigate('/community')); }} /><section className="community-comments"><h2>Replies <span>{post.data.item.commentCount}</span></h2><form className="community-comment-form" onSubmit={(event) => void submit(event)}>{replyTo && <p>Replying to a comment <button type="button" onClick={() => setReplyTo(null)}>Cancel</button></p>}<div className="community-comment-form__input">{commentMentionMatch && commentMentionQuery.data?.items.length ? <div className="community-autocomplete">{commentMentionQuery.data.items.map((person) => <button type="button" key={person.id} onClick={() => selectCommentMention(person)}><Avatar person={person} /> @{person.username}</button>)}</div> : null}<textarea ref={commentInput} value={draft} onChange={(event) => { setDraft(event.target.value); setCommentMentions((items) => items.filter((person) => event.target.value.toLowerCase().includes(`@${person.username.toLowerCase()}`))); setCommentQueryText(event.target.value.slice(0, event.target.selectionStart)); }} maxLength={2000} placeholder="Add to the conversation…" aria-label="Write a comment" /></div><Button type="submit" disabled={!draft.trim()}><Send size={15} /> Reply</Button></form>{error && <p className="form-alert" role="alert">{error}</p>}{comments.isLoading ? <LoadingLine label="Loading replies" /> : items.length ? items.map((comment) => <CommentThread key={comment._id} comment={comment} onReply={(id) => { setReplyTo(id); commentInput.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} />) : <p className="community-muted">No replies yet.</p>}{comments.hasNextPage && <Button variant="outline" disabled={comments.isFetchingNextPage} onClick={() => void comments.fetchNextPage()}>Load older replies</Button>}</section></main>;
+}
+
+export function CommunitySavedPage() {
+  const deletePost = useDeletePost(); const query = useInfiniteQuery({ queryKey: ['community', 'saved'], initialPageParam: 1, queryFn: ({ pageParam }) => apiRequest<Page<Post>>(`/community/posts/saved?page=${pageParam}&limit=12`), getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined });
+  const posts = query.data?.pages.flatMap((page) => page.items) ?? [];
+  return <main className="page-wrap community-page"><PageHeading eyebrow="Kept for later" title="Saved discussions" action={<Link className="inline-arrow" to="/community">Back to Community</Link>} />{query.isLoading ? <LoadingLine /> : posts.length ? <div className="community-feed">{posts.map((post) => <PostCard key={post._id} post={post} onDelete={(item) => void deletePost(item)} />)}</div> : <EmptyState title="Nothing saved yet" description="Bookmark a discussion to keep it here." />}{query.hasNextPage && <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>Load more</Button>}</main>;
+}
+
+export function CommunitySearchPage() {
+  const [term, setTerm] = useState(''); const [debounced, setDebounced] = useState(''); const [kind, setKind] = useState<'posts' | 'titles' | 'people'>('posts'); const deletePost = useDeletePost();
+  const client = useQueryClient();
+  useEffect(() => { const timer = window.setTimeout(() => setDebounced(term.trim()), 300); return () => window.clearTimeout(timer); }, [term]);
+  const postQuery = useInfiniteQuery({ queryKey: ['community', 'search', debounced], initialPageParam: 1, queryFn: ({ pageParam }) => apiRequest<Page<Post>>(`/community/search?q=${encodeURIComponent(debounced)}&page=${pageParam}&limit=20`), getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined, enabled: kind === 'posts' && debounced.length >= 2 });
+  const titleQuery = useQuery({ queryKey: ['community', 'search-titles', debounced], queryFn: () => apiRequest<{ items: MediaTitle[] }>(`/catalog/search?q=${encodeURIComponent(debounced)}`), enabled: kind === 'titles' && debounced.length >= 2 });
+  const peopleQuery = useQuery({ queryKey: ['community', 'search-people', debounced], queryFn: () => apiRequest<Page<Person>>(`/social/people?q=${encodeURIComponent(debounced)}&page=1&limit=20`), enabled: kind === 'people' && debounced.length >= 2 });
+  const posts = postQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  async function toggleFollow(person: Person) { try { await apiRequest(`/social/users/${encodeURIComponent(person.username)}/follow`, { method: person.isFollowing ? 'DELETE' : 'POST' }); await client.invalidateQueries({ queryKey: ['community', 'search-people', debounced] }); await client.invalidateQueries({ queryKey: ['social'] }); } catch { /* The row remains available; errors are surfaced by the refreshed relationship state. */ } }
+  return <main className="page-wrap community-page"><PageHeading eyebrow="Find a conversation" title="Search Community" action={<Link className="inline-arrow" to="/community">Back to Community</Link>} /><label className="community-search-input"><Search size={17} /><input value={term} onChange={(event) => setTerm(event.target.value)} placeholder={`Search ${kind}`} aria-label="Search community" /></label><nav className="community-search-tabs" aria-label="Search result type">{(['posts', 'titles', 'people'] as const).map((value) => <button type="button" className={kind === value ? 'is-active' : ''} key={value} onClick={() => setKind(value)}>{value[0]!.toUpperCase() + value.slice(1)}</button>)}</nav>
+    {debounced.length < 2 ? <p className="community-muted">Enter at least two characters to search.</p> : kind === 'posts' ? postQuery.isLoading ? <LoadingLine /> : posts.length ? <div className="community-feed">{posts.map((post) => <PostCard key={post._id} post={post} onDelete={(item) => void deletePost(item)} />)}</div> : <EmptyState title="No discussions found" description="Try a different phrase." /> : kind === 'titles' ? titleQuery.isFetching ? <LoadingLine label="Searching titles" /> : titleQuery.data?.items.length ? <div className="community-result-list">{titleQuery.data.items.map((title) => <Link to={`/app/title/${title._id}`} className="community-title-result" key={title._id}><Poster title={title} size="small" /><span><strong>{title.title}</strong><small>{title.mediaType === 'movie' ? 'Film' : 'Series'}{title.releaseDate ? ` · ${title.releaseDate.slice(0, 4)}` : ''}</small></span><ArrowUpRight size={16} /></Link>)}</div> : <EmptyState title="No matching titles" description="Try another movie or series name." /> : peopleQuery.isFetching ? <LoadingLine label="Finding members" /> : peopleQuery.data?.items.length ? <div className="community-result-list">{peopleQuery.data.items.map((person) => <article className="community-person-result" key={person.id}><Link to={`/u/${person.username}`}><Avatar person={person} /><span><strong>@{person.username}</strong><small>{person.bio || 'Showgraphy member'}</small></span></Link><Button variant={person.isFollowing ? 'outline' : 'primary'} onClick={() => void toggleFollow(person)}>{person.isFollowing ? 'Following' : 'Follow'}</Button></article>)}</div> : <EmptyState title="No members found" description="Try another username." />}
+    {kind === 'posts' && postQuery.hasNextPage && <Button variant="outline" disabled={postQuery.isFetchingNextPage} onClick={() => void postQuery.fetchNextPage()}>{postQuery.isFetchingNextPage ? 'Loading…' : 'Load more results'}</Button>}
+  </main>;
+}
+
+export function TitleDiscussions({ titleId, title }: { titleId: string; title: MediaTitle }) {
+  const [sort, setSort] = useState<'recent' | 'popular'>('recent');
+  const query = useInfiniteQuery({ queryKey: ['community', 'title', titleId, sort], initialPageParam: 1, queryFn: ({ pageParam }) => apiRequest<Page<Post>>(`/community/posts?feed=discover&titleId=${titleId}&sort=${sort}&page=${pageParam}&limit=5`), getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined });
+  const posts = query.data?.pages.flatMap((page) => page.items) ?? [];
+  return <section className="community-title-discussions"><div className="section-topline"><div><p className="eyebrow">The conversation continues</p><h2>Discussions about {title.title}</h2></div><Link className="button button--outline" to={`/community?titleId=${titleId}`}><Plus size={15} /> Start discussion</Link></div><nav className="community-search-tabs" aria-label="Title discussion sort"><button type="button" className={sort === 'recent' ? 'is-active' : ''} onClick={() => setSort('recent')}>Recent</button><button type="button" className={sort === 'popular' ? 'is-active' : ''} onClick={() => setSort('popular')}>Popular</button></nav>{query.isLoading ? <LoadingLine /> : posts.length ? <div className="community-feed">{posts.map((post) => <PostCard key={post._id} post={post} />)}</div> : <p className="community-muted">No discussions linked to this title yet.</p>}{query.hasNextPage && <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>Load more discussions</Button>}<Link className="inline-arrow" to={`/community?titleId=${titleId}`}>Open all discussions <ArrowUpRight size={15} /></Link></section>;
+}
+
+export function CommunityProfilePosts({ username }: { username: string }) {
+  const query = useInfiniteQuery({ queryKey: ['community', 'profile-posts', username], initialPageParam: 1, queryFn: ({ pageParam }) => apiRequest<Page<Post>>(`/community/posts?author=${encodeURIComponent(username)}&page=${pageParam}&limit=6`), getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined });
+  const posts = query.data?.pages.flatMap((page) => page.items) ?? [];
+  if (query.isLoading) return <section className="profile-section"><LoadingLine label={`Loading @${username}'s discussions`} /></section>;
+  if (!posts.length) return null;
+  return <section className="profile-section community-profile-posts"><div className="section-topline"><div><p className="eyebrow">From the community</p><h2>@{username}'s discussions</h2></div></div><div className="community-feed">{posts.map((post) => <PostCard key={post._id} post={post} />)}</div>{query.hasNextPage && <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>Load more discussions</Button>}</section>;
+}

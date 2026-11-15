@@ -20,6 +20,10 @@ const ConversationPage = lazy(() => import('./pages/SocialPages').then(({ Conver
 const NotificationsPage = lazy(() => import('./pages/SocialPages').then(({ NotificationsPage: page }) => ({ default: page })));
 const BlockedUsersPage = lazy(() => import('./pages/SocialPages').then(({ BlockedUsersPage: page }) => ({ default: page })));
 const ConnectionsPage = lazy(() => import('./pages/SocialPages').then(({ ConnectionsPage: page }) => ({ default: page })));
+const CommunityHomePage = lazy(() => import('./pages/CommunityPages').then(({ CommunityHomePage: page }) => ({ default: page })));
+const CommunityPostPage = lazy(() => import('./pages/CommunityPages').then(({ CommunityPostPage: page }) => ({ default: page })));
+const CommunitySavedPage = lazy(() => import('./pages/CommunityPages').then(({ CommunitySavedPage: page }) => ({ default: page })));
+const CommunitySearchPage = lazy(() => import('./pages/CommunityPages').then(({ CommunitySearchPage: page }) => ({ default: page })));
 
 function ProtectedLayout() {
   const { user, ready, restoreError, retryRestore } = useAuth();
@@ -97,6 +101,10 @@ export function App() {
         <Route path="/messages" element={<MessagesPage />} />
         <Route path="/messages/requests" element={<MessagesPage requests />} />
         <Route path="/messages/:conversationId" element={<ConversationPage />} />
+        <Route path="/community" element={<CommunityHomePage />} />
+        <Route path="/community/search" element={<CommunitySearchPage />} />
+        <Route path="/community/saved" element={<CommunitySavedPage />} />
+        <Route path="/community/post/:postId" element={<CommunityPostPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/blocked" element={<BlockedUsersPage />} />
         <Route path="/u/:username/followers" element={<ConnectionsPage type="followers" />} />
