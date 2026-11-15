@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, Palette, Settings, UserRound, UserSearch, X } from 'lucide-react';
+import { Bell, BookOpen, ChartNoAxesCombined, Compass, Library, ListMusic, Menu, MessageCircle, MessageSquareText, Palette, Settings, UserRound, UserSearch, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { apiRequest } from '../lib/api';
@@ -15,6 +15,7 @@ const navigation = [
   { to: '/app/collections', label: 'Collections', icon: ListMusic },
   { to: '/app/insights', label: 'Insights', icon: ChartNoAxesCombined },
   { to: '/app/chat', label: 'Global Chat', icon: MessageCircle },
+  { to: '/community', label: 'Community', icon: MessageSquareText },
   { to: '/people', label: 'People', icon: UserSearch },
   { to: '/messages', label: 'Messages', icon: MessageCircle },
 ];
@@ -24,6 +25,7 @@ const pageTitles: Record<string, string> = {
   '/app': 'Your journal', '/app/discover': 'Discover', '/app/library': 'The library',
   '/app/collections': 'Collections', '/app/insights': 'Insights', '/app/chat': 'Global Chat', '/app/settings': 'Account settings',
   '/people': 'Discover people', '/following': 'Following', '/messages': 'Messages', '/notifications': 'Notifications', '/blocked': 'Blocked accounts',
+  '/community': 'Community', '/community/saved': 'Saved discussions', '/community/search': 'Search Community',
 };
 
 export function AppShell() {
@@ -41,7 +43,7 @@ export function AppShell() {
     refetchOnWindowFocus: true,
   });
   const unreadCount = notifications.data?.unreadCount ?? 0;
-  const title = pageTitles[location.pathname] || (location.pathname.startsWith('/messages/') ? 'Messages' : location.pathname.includes('/followers') ? 'Followers' : location.pathname.includes('/following') ? 'Following' : location.pathname.includes('/title/') ? 'Title details' : location.pathname.includes('/collections/') ? 'A collection' : 'Showgraphy');
+  const title = pageTitles[location.pathname] || (location.pathname.startsWith('/messages/') ? 'Messages' : location.pathname.startsWith('/community/post/') ? 'Discussion' : location.pathname.includes('/followers') ? 'Followers' : location.pathname.includes('/following') ? 'Following' : location.pathname.includes('/title/') ? 'Title details' : location.pathname.includes('/collections/') ? 'A collection' : 'Showgraphy');
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,6 +9,8 @@ import { Button, EmptyState, FieldError, LoadingLine, MediaCard, PageHeading, Po
 import { apiRequest } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { LibraryEntry, MediaTitle, UserList, WatchStatus } from '../types';
+
+const TitleDiscussions = lazy(() => import('./CommunityPages').then(({ TitleDiscussions: page }) => ({ default: page })));
 
 type Page<T> = { items: T[]; total: number; page: number; limit: number };
 type SearchResult = Page<MediaTitle> & { totalPages: number; providers: { tmdb: boolean; anilist: boolean }; searchConfigured: boolean };
@@ -330,6 +332,7 @@ export function TitlePage() {
         <form className="review-form" onSubmit={submitReview}><label htmlFor="title-review">Write a review</label><textarea id="title-review" value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} minLength={1} maxLength={3000} rows={5} placeholder="What stayed with you?" required /><span>{reviewBody.length}/3000</span><Button type="submit" disabled={!reviewBody.trim()}>Publish review</Button></form>
         <div className="review-list">{reviews.isLoading ? <LoadingLine label="Loading reviews" /> : reviews.data?.items.length ? reviews.data.items.map((review) => <article className="review-card" key={review._id}><header><strong>@{review.userId.username}</strong><time dateTime={review.createdAt}>{new Date(review.createdAt).toLocaleDateString()}</time></header>{editingReviewId === review._id ? <div className="review-edit"><textarea aria-label="Edit review" value={editingReviewBody} onChange={(event) => setEditingReviewBody(event.target.value)} maxLength={3000} rows={4} /><span>{editingReviewBody.length}/3000</span><Button disabled={!editingReviewBody.trim()} onClick={() => void saveReviewEdit(review._id)}>Save changes</Button><Button variant="outline" onClick={() => setEditingReviewId(null)}>Cancel</Button></div> : <><p>{review.body}</p>{user?.id === review.userId._id && <div className="review-actions"><button className="text-button" onClick={() => { setEditingReviewId(review._id); setEditingReviewBody(review.body); }}><Pencil size={14} /> Edit</button><button className="text-button" onClick={() => void deleteReview(review._id)}><Trash2 size={14} /> Delete</button></div>}</>}</article>) : <p className="review-empty">No reviews yet. Start the conversation.</p>}</div>
       </section>
+      <Suspense fallback={null}><TitleDiscussions titleId={item._id} title={item} /></Suspense>
       {deletingReviewId && <div className="dialog-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeletingReviewId(null); }}><section className="dialog-panel confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-review-title"><div className="dialog-header"><div><p className="eyebrow">Remove your review</p><h2 id="delete-review-title">Delete this review?</h2></div><button className="icon-button" aria-label="Close confirmation" onClick={() => setDeletingReviewId(null)}><X size={18} /></button></div><p>This review will be permanently deleted.</p><div className="dialog-actions"><Button variant="outline" onClick={() => setDeletingReviewId(null)}>Cancel</Button><Button variant="danger" onClick={() => void confirmDeleteReview()}>Delete review</Button></div></section></div>}
     </div>
   </div>;

@@ -47,6 +47,20 @@ All `/social` routes require an access token.
 - `GET /social/conversations/:conversationId/messages?limit=&before=` returns authorized history; `POST /social/conversations/:conversationId/messages` sends idempotent, rate-limited text messages and emits the same real-time event when socket transport is unavailable; `PATCH /social/conversations/:conversationId/{accept|decline|read}` handles requests and read state.
 - `POST /social/reports` reports a member or a message in a conversation.
 
+## Community
+
+All `/community` routes require an access token and reuse the existing User, MediaTitle, Follow, Block, Notification, and SocialReport collections.
+
+- `GET /community/posts?feed=discover|following|trending&page=&limit=&titleId=&author=&sort=recent|popular` returns a paginated feed. Discover and Following are chronological. Trending uses the recency-decayed score documented in `architecture.md`; title-specific discussions can use `sort=popular`.
+- `POST /community/posts` creates a post with text, canonical title IDs, optional verified image references, mentions, spoiler metadata, and/or a poll. `PATCH /community/posts/:postId` and `DELETE /community/posts/:postId` are author-only.
+- `GET /community/posts/:postId` returns a discussion and the signed-in user's like, bookmark, and poll state.
+- `POST|DELETE /community/posts/:postId/like`, `POST|DELETE /community/posts/:postId/bookmark`, and `POST /community/posts/:postId/poll-vote` update persistent interactions. Poll votes are single-choice and cannot be changed; vote totals are grouped from vote records.
+- `GET|POST /community/posts/:postId/comments` paginates top-level comments and one reply level. `PATCH|DELETE /community/comments/:commentId` are author-only. `POST /community/posts/:postId/report` and `POST /community/comments/:commentId/report` submit moderation reports to SocialReport.
+- `GET /community/posts/saved?page=&limit=` returns private bookmarks; `GET /community/search?q=&page=&limit=` searches post text. Title search uses `/catalog/search`; People search and follow actions use `/social/people` and `/social/users/:username/follow`.
+- `POST /community/uploads/signature` issues an authenticated signed Cloudinary upload scoped to the current account and records a 72-hour cleanup reservation. The client uploads directly to Cloudinary with progress. `POST /community/uploads/delete` removes an unattached draft upload. Post creation verifies each image with Cloudinary before persisting its metadata and consumes its reservation. A server cleanup pass deletes expired, unattached assets.
+
+Community image delivery requires `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` on the server. Upload controls report a configuration error until all three are set. No storage secret is exposed to the client.
+
 The same Render Socket.IO process authenticates private messaging with the existing short-lived access token. Client events are `dm:join`, `dm:send`, `dm:typing`, and `dm:read`; server events are `dm:message`, `dm:typing`, `dm:read`, and `social:notification`. Direct messages use private conversation rooms and re-check participant/block state before joining and sending.
 
 ## Global Chat
