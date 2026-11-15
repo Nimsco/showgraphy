@@ -340,16 +340,25 @@ communityRouter.get('/posts/:postId/comments/:commentId/replies', route(async (r
   const viewerId = String(request.auth!.userId);
   const post = await findAccessiblePost(String(request.params.postId), viewerId);
   const commentId = postIdSchema.parse(request.params.commentId);
-  const parent = await CommunityComment.findOne({ _id: commentId, post: post._id, parentComment: null });
+  const parent = await CommunityComment.findOne({ _id: commentId, post: post._id, deletedAt: null });
   if (!parent || await isBlockedEitherWay(viewerId, String(parent.author))) throw new HttpError(404, 'Comment not found.');
   const { page, limit } = pageParams(request.query as Record<string, unknown>);
-  const filter = { post: post._id, parentComment: parent._id, author: { $nin: await blockedIds(viewerId) } };
+  const excluded = await blockedIds(viewerId);
+  const filter = { post: post._id, parentComment: parent._id, author: { $nin: excluded } };
   const [items, total] = await Promise.all([
     CommunityComment.find(filter).sort({ createdAt: 1, _id: 1 }).skip((page - 1) * limit).limit(limit).populate({ path: 'author', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).populate({ path: 'mentions', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).lean(),
     CommunityComment.countDocuments(filter),
   ]);
   const present = (comment: Record<string, unknown>) => ({ ...comment, author: comment.author ?? { username: 'deleted_user', avatar: '' }, mentions: Array.isArray(comment.mentions) ? comment.mentions.filter(Boolean) : [] });
-  response.json({ items: items.map((item) => present(item as unknown as Record<string, unknown>)), page, hasMore: page * limit < total });
+  const withReplies = await Promise.all(items.map(async (item) => {
+    const childFilter = { post: post._id, parentComment: item._id, author: { $nin: excluded } };
+    const [replyCount, replies] = await Promise.all([
+      CommunityComment.countDocuments(childFilter),
+      CommunityComment.find(childFilter).sort({ createdAt: 1, _id: 1 }).limit(2).populate({ path: 'author', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).populate({ path: 'mentions', select: safeUserFields, match: { accountStatus: 'active', profileVisibility: 'public' } }).lean(),
+    ]);
+    return { ...present(item as unknown as Record<string, unknown>), replyCount, replies: replies.map((reply) => present(reply as unknown as Record<string, unknown>)) };
+  }));
+  response.json({ items: withReplies, page, hasMore: page * limit < total });
 }));
 
 communityRouter.post('/posts/:postId/comments', route(async (request, response) => {
@@ -361,8 +370,8 @@ communityRouter.post('/posts/:postId/comments', route(async (request, response) 
   if (mentionedUsers.length !== mentions.length || mentionedUsers.some((person) => !input.content.toLowerCase().includes(`@${person.username.toLowerCase()}`))) throw new HttpError(400, 'One or more selected mentions are unavailable or missing from your comment.');
   let parent: InstanceType<typeof CommunityComment> | null = null;
   if (input.parentCommentId) {
-    parent = await CommunityComment.findOne({ _id: input.parentCommentId, post: post._id, parentComment: null, deletedAt: null });
-    if (!parent) throw new HttpError(400, 'Replies must belong to an available top-level comment.');
+    parent = await CommunityComment.findOne({ _id: input.parentCommentId, post: post._id, deletedAt: null });
+    if (!parent) throw new HttpError(400, 'Replies must belong to an available comment in this discussion.');
     if (await isBlockedEitherWay(viewerId, String(parent.author))) throw new HttpError(404, 'Comment not found.');
   }
   const item = await CommunityComment.create({ post: post._id, author: viewerId, parentComment: parent?._id ?? null, content: input.content, mentions });
