@@ -1,11 +1,12 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, BarChart3, CalendarDays, Check, Copy, Eye, Flag, LockKeyhole, Mail, MessageCircle, Monitor, Share2, Shield, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BarChart3, CalendarDays, Check, Copy, Eye, Flag, ImagePlus, LockKeyhole, Mail, MessageCircle, Monitor, Share2, Shield, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button, ConfirmDialog, EmptyState, LoadingLine, MediaCard, PageHeading, Poster } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { themeGroups, useTheme } from '../contexts/ThemeContext';
 import { apiRequest } from '../lib/api';
+import { uploadCloudinaryImage, type CloudinarySignature, type UploadedCloudinaryImage } from '../lib/cloudinary';
 import type { LibraryEntry, Statistics, User as UserType } from '../types';
 
 const CommunityProfilePosts = lazy(() => import('./CommunityPages').then(({ CommunityProfilePosts: page }) => ({ default: page })));
@@ -244,6 +245,11 @@ export function SettingsPage() {
   const [privacy, setPrivacy] = useState(user?.privacySettings ?? { showStats: true, showLists: true, showRatings: true, showActivity: true, showFavorites: true, allowMessageRequests: true });
   const [visibility, setVisibility] = useState(user?.profileVisibility ?? 'public');
   const [avatar, setAvatar] = useState('');
+  const [avatarPreview, setAvatarPreview] = useState('');
+  const [avatarAsset, setAvatarAsset] = useState<UploadedCloudinaryImage | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarProgress, setAvatarProgress] = useState(0);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [favoriteTitleIds, setFavoriteTitleIds] = useState<string[]>(user?.favoriteTitleIds ?? []);
   const [notice, setNotice] = useState('');
   const [saveNotice, setSaveNotice] = useState('');
@@ -262,10 +268,23 @@ export function SettingsPage() {
     return { items: [first, ...remaining].flatMap((page) => page.items) };
   } });
 
-  useEffect(() => { if (user) { setBio(user.bio); setPrivacy(user.privacySettings); setVisibility(user.profileVisibility); setAvatar(user.avatar); setFavoriteTitleIds(user.favoriteTitleIds ?? []); } }, [user?.id]);
+  useEffect(() => { if (user) { setBio(user.bio); setPrivacy(user.privacySettings); setVisibility(user.profileVisibility); setAvatar(user.avatar); setAvatarPreview(''); setAvatarAsset(null); setFavoriteTitleIds(user.favoriteTitleIds ?? []); } }, [user?.id]);
+  useEffect(() => { if (!avatarPreview.startsWith('blob:')) return; const preview = avatarPreview; return () => URL.revokeObjectURL(preview); }, [avatarPreview]);
+  async function chooseAvatar(file?: File) {
+    if (!file) return;
+    setError(''); setSaveNotice(''); setAvatarAsset(null); setAvatarPreview(URL.createObjectURL(file)); setAvatarUploading(true); setAvatarProgress(0);
+    try {
+      const signature = await apiRequest<CloudinarySignature>('/users/me/avatar-upload-signature', { method: 'POST' });
+      const uploaded = await uploadCloudinaryImage(file, signature, setAvatarProgress);
+      setAvatar(uploaded.secureUrl); setAvatarAsset(uploaded); setAvatarPreview('');
+    } catch (cause) {
+      setAvatarPreview(''); setError(cause instanceof Error ? cause.message : 'The profile image could not be uploaded.');
+    } finally { setAvatarUploading(false); if (avatarInputRef.current) avatarInputRef.current.value = ''; }
+  }
+  function clearAvatar() { setAvatar(''); setAvatarPreview(''); setAvatarAsset(null); setAvatarProgress(0); }
   async function saveProfile(event: FormEvent) {
     event.preventDefault(); setNotice(''); setSaveNotice(''); setError('');
-    try { const result = await apiRequest<{ user: UserType }>('/users/me', { method: 'PATCH', body: JSON.stringify({ bio, avatar, profileVisibility: visibility, privacySettings: privacy, favoriteTitleIds }) }); updateUser(result.user); setSaveNotice('Your profile and privacy choices were saved.'); }
+    try { const result = await apiRequest<{ user: UserType }>('/users/me', { method: 'PATCH', body: JSON.stringify({ bio, ...(avatarAsset ? { avatarAsset: { publicId: avatarAsset.publicId, version: avatarAsset.version } } : avatar !== user?.avatar ? { avatar } : {}), profileVisibility: visibility, privacySettings: privacy, favoriteTitleIds }) }); updateUser(result.user); setAvatarAsset(null); setSaveNotice('Your profile and privacy choices were saved.'); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Settings could not be saved.'); }
   }
   async function changePassword(event: FormEvent) {
@@ -296,7 +315,8 @@ export function SettingsPage() {
     {(notice || error) && <p className={error ? 'form-alert' : 'success-banner'} role={error ? 'alert' : 'status'}>{error || notice}<button aria-label="Dismiss message" onClick={() => { setNotice(''); setError(''); }}><X size={15} /></button></p>}
     <form onSubmit={saveProfile} className="settings-form">
       <section className="settings-section"><div className="settings-section__intro"><UserRound size={19} /><div><h2>Profile details</h2><p>These details appear on your profile when you make it public.</p></div></div><div className="settings-section__content">
-        <label>Username<input value={`@${user?.username ?? ''}`} readOnly /></label><label>Bio<textarea value={bio} onChange={(event) => setBio(event.target.value)} rows={3} maxLength={280} placeholder="A few words about what you like to watch" /><span className="field-count">{bio.length} / 280</span></label><label>Profile image URL<input type="url" value={avatar} onChange={(event) => setAvatar(event.target.value)} placeholder="https://…" /></label>
+        <label>Username<input value={`@${user?.username ?? ''}`} readOnly /></label><label>Bio<textarea value={bio} onChange={(event) => setBio(event.target.value)} rows={3} maxLength={280} placeholder="A few words about what you like to watch" /><span className="field-count">{bio.length} / 280</span></label>
+        <div className="profile-image-picker"><span className="profile-image-picker__preview">{avatarPreview || avatar ? <img src={avatarPreview || avatar} alt="Profile image preview" /> : <UserRound size={28} />}</span><div className="profile-image-picker__details"><strong>Profile picture</strong><small>{avatarUploading ? `Uploading image · ${avatarProgress}%` : 'Choose a JPG, PNG, or WebP image under 8 MB.'}</small><div><input ref={avatarInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void chooseAvatar(event.currentTarget.files?.[0])} /><Button type="button" variant="outline" disabled={avatarUploading} onClick={() => avatarInputRef.current?.click()}><ImagePlus size={15} /> {avatarUploading ? 'Uploading…' : 'Choose image'}</Button>{(avatar || avatarPreview) && <Button type="button" variant="quiet" disabled={avatarUploading} onClick={clearAvatar}><Trash2 size={15} /> Remove</Button>}</div></div></div>
         <label>Profile visibility<select value={visibility} onChange={(event) => setVisibility(event.target.value as 'public' | 'private')}><option value="public">Public</option><option value="private">Private</option></select></label><small className="profile-visibility-hint">Public lets anyone open your profile link. Private hides the profile from everyone except you. This does not expose your library; the switches below control which profile sections appear publicly.</small>
         <fieldset className="favorite-picker"><legend>Featured titles <small>Choose up to 10 · {favoriteTitleIds.length}/10 selected</small></legend>{library.data?.items.length ? library.data.items.map((entry) => <label key={entry.titleId._id}><input type="checkbox" checked={favoriteTitleIds.includes(entry.titleId._id)} disabled={!favoriteTitleIds.includes(entry.titleId._id) && favoriteTitleIds.length >= 10} onChange={(event) => setFavoriteTitleIds((value) => event.target.checked ? [...value, entry.titleId._id] : value.filter((id) => id !== entry.titleId._id))} /><span>{entry.titleId.title}</span></label>) : <p className="quiet-line">Add titles to your library to choose profile favorites.</p>}</fieldset>
         <Link className="inline-arrow" to={`/u/${user?.username}`}>Preview your profile <ArrowRight size={14} /></Link>

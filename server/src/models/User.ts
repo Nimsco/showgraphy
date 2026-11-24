@@ -16,6 +16,8 @@ const userSchema = new Schema({
   passwordHash: { type: String, select: false },
   googleSub: { type: String, sparse: true, unique: true },
   avatar: { type: String, default: '' },
+  avatarPublicId: { type: String, default: null },
+  avatarVersion: { type: Number, default: null },
   bio: { type: String, default: '', maxlength: 280 },
   emailVerified: { type: Boolean, default: false },
   accountStatus: { type: String, enum: ['active', 'disabled'], default: 'active' },

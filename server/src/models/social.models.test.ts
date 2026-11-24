@@ -21,4 +21,15 @@ describe('social data constraints', () => {
     const message = new DirectMessage({ conversationId: new mongoose.Types.ObjectId(), senderId: new mongoose.Types.ObjectId(), clientMessageId: 'id', content: '' });
     await expect(message.validate()).rejects.toThrow();
   });
+
+  it('allows an image-only private message', async () => {
+    const message = new DirectMessage({
+      conversationId: new mongoose.Types.ObjectId(),
+      senderId: new mongoose.Types.ObjectId(),
+      clientMessageId: 'image-message-id',
+      content: '',
+      image: { publicId: 'showgraphy/messages/user/image', secureUrl: 'https://res.cloudinary.com/demo/image.webp', version: 1, width: 640, height: 480, format: 'webp', bytes: 2048 },
+    });
+    await expect(message.validate()).resolves.toBeUndefined();
+  });
 });

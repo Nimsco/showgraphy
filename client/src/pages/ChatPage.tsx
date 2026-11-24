@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { Link } from 'react-router-dom';
 import { Flag, MessageCircle, Send, Trash2, UserRound, Wifi, WifiOff, X } from 'lucide-react';
@@ -67,6 +67,7 @@ export function GlobalChatPage() {
   const [reportDetails, setReportDetails] = useState('');
   const [reportBusy, setReportBusy] = useState(false);
   const [reportNotice, setReportNotice] = useState('');
+  const [activeMessageActions, setActiveMessageActions] = useState<string | null>(null);
   const socketRef = useRef<ChatSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -74,6 +75,11 @@ export function GlobalChatPage() {
   const pendingMessageRef = useRef<{ text: string; id: string } | null>(null);
   const typingTimersRef = useRef<Map<string, number>>(new Map());
   const typingSelfRef = useRef(false);
+  const messageActionTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (messageActionTimerRef.current) window.clearTimeout(messageActionTimerRef.current);
+  }, []);
 
   const appendMessages = useCallback((incoming: ChatMessage[]) => {
     setMessages((current) => {
@@ -253,6 +259,25 @@ export function GlobalChatPage() {
     if (viewport.scrollTop < 70 && hasOlder && !loadingOlder) void loadOlderMessages();
   }
 
+  function startMessageActionPress(messageId: string, event: PointerEvent<HTMLElement>) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (event.target instanceof Element && event.target.closest('button')) return;
+    if (messageActionTimerRef.current) window.clearTimeout(messageActionTimerRef.current);
+    messageActionTimerRef.current = window.setTimeout(() => setActiveMessageActions(messageId), 480);
+  }
+
+  function stopMessageActionPress() {
+    if (messageActionTimerRef.current) window.clearTimeout(messageActionTimerRef.current);
+    messageActionTimerRef.current = null;
+  }
+
+  function toggleMessageActions(event: KeyboardEvent<HTMLElement>, messageId: string) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setActiveMessageActions((current) => current === messageId ? null : messageId);
+    }
+  }
+
   function updateDraft(value: string) {
     setDraft(value);
     const socket = socketRef.current;
@@ -369,12 +394,12 @@ export function GlobalChatPage() {
         {(loadingOlder || hasOlder) && <div className="chat-history-control">{loadingOlder ? <span>Loading older messages…</span> : <button type="button" onClick={() => void loadOlderMessages()}>Load older messages</button>}</div>}
         {loadingHistory && !messages.length ? <LoadingLine label="Opening the conversation" /> : !messages.length ? <div className="chat-empty"><MessageCircle size={22} /><h3>Start the conversation</h3><p>Say hello or share what’s on your watchlist.</p></div> : displayMessages.map(({ message, showDay, continues }) => <Fragment key={message.id}>
           {showDay && <div className="chat-date"><span>{dayLabel(message.createdAt)}</span></div>}
-          <article className={`chat-message${message.authorId === user?.id ? ' chat-message--own' : ''}${continues ? ' chat-message--continuation' : ''}${message.deletedAt ? ' chat-message--deleted' : ''}`}>
+          <article className={`chat-message${message.authorId === user?.id ? ' chat-message--own' : ''}${continues ? ' chat-message--continuation' : ''}${message.deletedAt ? ' chat-message--deleted' : ''}${activeMessageActions === message.id ? ' is-actions-open' : ''}`} tabIndex={0} aria-label={`Message from ${message.authorId === user?.id ? 'you' : `@${message.username}`}. Hold or press Enter to show actions.`} onPointerDown={(event) => startMessageActionPress(message.id, event)} onPointerUp={stopMessageActionPress} onPointerCancel={stopMessageActionPress} onPointerLeave={stopMessageActionPress} onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => toggleMessageActions(event, message.id)}>
             <div className="chat-message__avatar">{message.avatar ? <img src={message.avatar} alt="" loading="lazy" /> : <UserRound size={16} />}</div>
             <div className="chat-message__body">
               {!continues && <header><Link to={`/u/${encodeURIComponent(message.username)}`} aria-label={`Open @${message.username} profile`}><strong>@{message.username}</strong></Link><time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</time></header>}
               <div className="chat-message__bubble"><p>{message.deletedAt ? 'This message was deleted.' : message.text}</p>
-                {!message.deletedAt && <div className="chat-message__actions">{message.authorId === user?.id ? <button type="button" aria-label="Delete your message" title="Delete your message" onClick={() => setDeleteTarget(message)}><Trash2 size={13} /></button> : <button type="button" aria-label={`Report message from ${message.username}`} title="Report message" onClick={() => { setReportTarget(message); setReportReason('other'); setReportDetails(''); }}><Flag size={13} /></button>}</div>}
+                {!message.deletedAt && <div className="chat-message__actions" aria-label="Message actions">{message.authorId === user?.id ? <button type="button" aria-label="Delete your message" title="Delete your message" onClick={() => { setActiveMessageActions(null); setDeleteTarget(message); }}><Trash2 size={15} /></button> : <button type="button" aria-label={`Report message from ${message.username}`} title="Report message" onClick={() => { setActiveMessageActions(null); setReportTarget(message); setReportReason('other'); setReportDetails(''); }}><Flag size={15} /></button>}</div>}
               </div>
             </div>
           </article>

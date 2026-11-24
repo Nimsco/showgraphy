@@ -2,8 +2,9 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { z } from 'zod';
 import { authenticate, authenticateOptional } from '../middleware/authenticate.js';
-import { Block, CommunityComment, CommunityPollVote, CommunityPost, CommunityPostBookmark, CommunityPostLike, CommunityRating, CommunityUploadReservation, Conversation, DirectMessage, EmailActionToken, Follow, ListShare, MediaTitle, Notification, RefreshSession, SocialReport, TitleReview, User, UserLibraryEntry, UserList } from '../models/index.js';
+import { Block, CommunityComment, CommunityPollVote, CommunityPost, CommunityPostBookmark, CommunityPostLike, CommunityRating, CommunityUploadReservation, Conversation, DirectMessage, EmailActionToken, Follow, ListShare, MediaTitle, Notification, RefreshSession, SocialReport, SocialUploadReservation, TitleReview, User, UserLibraryEntry, UserList } from '../models/index.js';
 import { destroyCommunityImage } from '../services/community-media.service.js';
+import { createSocialUploadSignature, destroySocialImage, verifySocialImage } from '../services/social-media.service.js';
 import { clearRefreshCookie, safeUser } from '../services/auth.service.js';
 import { getUserStatistics } from '../services/statistics.service.js';
 import { HttpError, route } from '../utils/http.js';
@@ -36,10 +37,18 @@ usersRouter.patch('/me/username', authenticate, route(async (request, response) 
   response.json({ user: safeUser(user) });
 }));
 
+usersRouter.post('/me/avatar-upload-signature', authenticate, route(async (request, response) => {
+  const userId = String(request.auth!.userId);
+  const signature = createSocialUploadSignature(userId, 'avatar');
+  await SocialUploadReservation.create({ owner: userId, kind: 'avatar', publicId: signature.public_id, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
+  response.json(signature);
+}));
+
 usersRouter.patch('/me', authenticate, route(async (request, response) => {
   const input = z.object({
     bio: z.string().trim().max(280).optional(),
     avatar: z.url().or(z.literal('')).optional(),
+    avatarAsset: z.object({ publicId: z.string().trim().min(1).max(220), version: z.number().int().positive() }).nullable().optional(),
     profileVisibility: z.enum(['public', 'private']).optional(),
     themePreference: z.enum(['dark', 'light', 'ocean', 'forest', 'rose', 'sunset', 'ocean-light', 'sage-light', 'rose-light', 'sunset-light', 'system']).optional(),
     textSizePreference: z.enum(['small', 'default', 'large']).optional(),
@@ -49,7 +58,25 @@ usersRouter.patch('/me', authenticate, route(async (request, response) => {
   const user = await User.findById(request.auth!.userId);
   if (!user) throw new HttpError(404, 'Account not found.');
   if (input.bio !== undefined) user.bio = input.bio;
-  if (input.avatar !== undefined) user.avatar = input.avatar;
+  const previousAvatarPublicId = user.avatarPublicId;
+  let avatarReservationId: unknown;
+  if (input.avatarAsset === null || (input.avatar !== undefined && !input.avatar)) {
+    user.avatar = '';
+    user.avatarPublicId = null;
+    user.avatarVersion = null;
+  } else if (input.avatarAsset) {
+    const reservation = await SocialUploadReservation.findOne({ owner: user._id, kind: 'avatar', publicId: input.avatarAsset.publicId, expiresAt: { $gt: new Date() } }).select('_id').lean();
+    if (!reservation) throw new HttpError(400, 'Choose the profile image again before saving.');
+    const image = await verifySocialImage(String(user._id), 'avatar', input.avatarAsset);
+    user.avatar = image.secureUrl;
+    user.avatarPublicId = image.publicId;
+    user.avatarVersion = image.version;
+    avatarReservationId = reservation._id;
+  } else if (input.avatar !== undefined) {
+    user.avatar = input.avatar;
+    user.avatarPublicId = null;
+    user.avatarVersion = null;
+  }
   if (input.profileVisibility) user.profileVisibility = input.profileVisibility;
   if (input.themePreference) user.themePreference = input.themePreference;
   if (input.textSizePreference) user.textSizePreference = input.textSizePreference;
@@ -60,6 +87,8 @@ usersRouter.patch('/me', authenticate, route(async (request, response) => {
     user.favoriteTitleIds = ids;
   }
   await user.save();
+  if (avatarReservationId) await SocialUploadReservation.deleteOne({ _id: avatarReservationId });
+  if (previousAvatarPublicId && previousAvatarPublicId !== user.avatarPublicId) await destroySocialImage(previousAvatarPublicId).catch(() => undefined);
   response.json({ user: {
     id: String(user._id), username: user.username, usernameSetupRequired: user.usernameSetupRequired, email: user.email,
     emailVerified: user.emailVerified,
@@ -105,8 +134,11 @@ usersRouter.get('/profiles/:username', authenticateOptional, route(async (reques
 
 usersRouter.delete('/me', authenticate, route(async (request, response) => {
   const userId = request.auth!.userId;
+  const user = await User.findById(userId).select('avatarPublicId').lean();
   const conversations = await Conversation.find({ participants: userId }).select('_id').lean();
   const conversationIds = conversations.map((conversation) => conversation._id);
+  const directMessages = await DirectMessage.find({ conversationId: { $in: conversationIds } }).select('image.publicId').lean();
+  const pendingSocialUploads = await SocialUploadReservation.find({ owner: userId }).select('publicId').lean();
   const communityPosts = await CommunityPost.find({ author: userId }).select('_id images').lean();
   const pendingCommunityUploads = await CommunityUploadReservation.find({ owner: userId }).select('publicId').lean();
   const communityPostIds = communityPosts.map((post) => post._id);
@@ -126,6 +158,7 @@ usersRouter.delete('/me', authenticate, route(async (request, response) => {
     TitleReview.deleteMany({ userId }),
     CommunityPost.deleteMany({ author: userId }),
     CommunityUploadReservation.deleteMany({ owner: userId }),
+    SocialUploadReservation.deleteMany({ owner: userId }),
     CommunityComment.deleteMany({ post: { $in: communityPostIds } }),
     CommunityComment.updateMany({ author: userId, post: { $nin: communityPostIds }, deletedAt: null }, { $set: { content: 'This comment was removed.', mentions: [], deletedAt: new Date() } }),
     CommunityPostLike.deleteMany({ $or: [{ post: { $in: communityPostIds } }, { user: userId }] }),
@@ -146,6 +179,11 @@ usersRouter.delete('/me', authenticate, route(async (request, response) => {
   await Promise.all(ownCommentCounts.map((entry) => CommunityPost.updateOne({ _id: entry._id, commentCount: { $gte: entry.count } }, { $inc: { commentCount: -entry.count } })));
   await Promise.allSettled(communityPosts.flatMap((post) => post.images.map((image) => destroyCommunityImage(image.publicId))));
   await Promise.allSettled(pendingCommunityUploads.map((upload) => destroyCommunityImage(upload.publicId)));
+  await Promise.allSettled([
+    ...directMessages.flatMap((message) => message.image?.publicId ? [destroySocialImage(message.image.publicId)] : []),
+    ...pendingSocialUploads.map((upload) => destroySocialImage(upload.publicId)),
+    ...(user?.avatarPublicId ? [destroySocialImage(user.avatarPublicId)] : []),
+  ]);
   await Promise.all(affected.map(async (id) => {
     const titleId = new mongoose.Types.ObjectId(id);
     const rows = await CommunityRating.aggregate<{ average: number; count: number }>([{ $match: { titleId } }, { $group: { _id: null, average: { $avg: '$rating' }, count: { $sum: 1 } } }]);

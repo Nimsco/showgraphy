@@ -22,3 +22,4 @@ export { CommunityPostBookmark } from './CommunityPostBookmark.js';
 export { CommunityComment } from './CommunityComment.js';
 export { CommunityPollVote } from './CommunityPollVote.js';
 export { CommunityUploadReservation } from './CommunityUploadReservation.js';
+export { SocialUploadReservation } from './SocialUploadReservation.js';

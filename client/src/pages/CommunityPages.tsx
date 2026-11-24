@@ -4,18 +4,18 @@ import { ArrowUpRight, Bookmark, Check, ChevronDown, ChevronLeft, ChevronRight, 
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, ConfirmDialog, EmptyState, LoadingLine, PageHeading, Poster } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
+import { uploadCloudinaryImage, type CloudinarySignature, type UploadedCloudinaryImage } from '../lib/cloudinary';
 import { apiRequest } from '../lib/api';
 import type { MediaTitle } from '../types';
 
 type Person = { _id?: string; id?: string; username: string; avatar?: string; bio?: string; isFollowing?: boolean };
 type TitleReference = { titleId: string; title: string; poster?: string; mediaType: 'movie' | 'series'; releaseDate?: string };
-type CommunityImage = { publicId: string; secureUrl: string; version: number; width: number; height: number; format: string; bytes: number };
+type CommunityImage = UploadedCloudinaryImage;
 type Poll = { question: string; options: string[]; counts?: number[]; totalVotes?: number; myVote?: number | null; expiresAt?: string; closed?: boolean };
 type CommunityCategory = 'general' | 'anime' | 'k-drama' | 'c-drama' | 'j-drama' | 'movies' | 'tv-series' | 'western-series' | 'animation' | 'documentaries' | 'other';
 type Post = { _id: string; title?: string; author: Person; content: string; categories?: CommunityCategory[]; category?: string; mediaReferences: TitleReference[]; images?: CommunityImage[]; mentions?: Person[]; containsSpoilers: boolean; spoilerDescription?: string; poll?: Poll; likeCount: number; commentCount: number; bookmarkCount: number; createdAt: string; isEdited?: boolean; isLiked: boolean; isBookmarked: boolean };
 type Comment = { _id: string; post: string; author: Person; content: string; mentions?: Person[]; createdAt: string; editedAt?: string; deletedAt?: string; parentComment?: string | null; replyCount?: number; replies?: Comment[] };
 type Page<T> = { items: T[]; page: number; hasMore: boolean };
-type UploadSignature = { allowed_formats: string; folder: string; public_id: string; timestamp: number; overwrite: string; signature: string; cloudName: string; apiKey: string };
 const communityCategories: Array<{ value: CommunityCategory; label: string }> = [
   { value: 'general', label: 'General' }, { value: 'anime', label: 'Anime' }, { value: 'k-drama', label: 'K-Drama' }, { value: 'c-drama', label: 'C-Drama' }, { value: 'j-drama', label: 'J-Drama' }, { value: 'movies', label: 'Movies' }, { value: 'tv-series', label: 'TV Series' }, { value: 'western-series', label: 'Western Series' }, { value: 'animation', label: 'Animation' }, { value: 'documentaries', label: 'Documentaries' }, { value: 'other', label: 'Other' },
 ];
@@ -189,12 +189,8 @@ function PostCard({ post, onDelete, interactive = true, onOpenComments }: { post
 }
 
 async function uploadImage(file: File, onProgress: (progress: number) => void): Promise<CommunityImage> {
-  const signature = await apiRequest<UploadSignature>('/community/uploads/signature', { method: 'POST' });
-  const form = new FormData(); form.append('file', file); form.append('api_key', signature.apiKey); form.append('timestamp', String(signature.timestamp)); form.append('signature', signature.signature); form.append('folder', signature.folder); form.append('public_id', signature.public_id); form.append('allowed_formats', signature.allowed_formats); form.append('overwrite', signature.overwrite);
-  const result = await new Promise<{ public_id: string; secure_url: string; version: number; width: number; height: number; format: string; bytes: number }>((resolve, reject) => {
-    const request = new XMLHttpRequest(); request.open('POST', `https://api.cloudinary.com/v1_1/${encodeURIComponent(signature.cloudName)}/image/upload`); request.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(Math.round(event.loaded * 100 / event.total)); }; request.onerror = () => reject(new Error('Image upload failed. Check your connection and try again.')); request.onload = () => { const data = JSON.parse(request.responseText || '{}') as { public_id?: string; secure_url?: string; version?: number; width?: number; height?: number; format?: string; bytes?: number; error?: { message?: string } }; if (request.status < 200 || request.status >= 300 || !data.public_id || !data.secure_url || !data.version || !data.width || !data.height || !data.format || !data.bytes) reject(new Error(data.error?.message ?? 'Image upload failed.')); else resolve(data as Required<typeof data>); }; request.send(form);
-  });
-  return { publicId: result.public_id, secureUrl: result.secure_url, version: result.version, width: result.width, height: result.height, format: result.format, bytes: result.bytes };
+  const signature = await apiRequest<CloudinarySignature>('/community/uploads/signature', { method: 'POST' });
+  return uploadCloudinaryImage(file, signature, onProgress);
 }
 
 function PostComposer({ initialTitleId, onCreated }: { initialTitleId?: string; onCreated?: () => void }) {
