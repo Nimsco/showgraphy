@@ -90,7 +90,7 @@ const commentSchema = z.object({ content: z.string().trim().min(1).max(2000), pa
 
 communityRouter.post('/uploads/signature', route(async (request, response) => {
   const signature = createCommunityUploadSignature(String(request.auth!.userId));
-  await CommunityUploadReservation.create({ owner: request.auth!.userId, publicId: signature.public_id, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
+  await CommunityUploadReservation.create({ owner: request.auth!.userId, publicId: `${signature.folder}/${signature.public_id}`, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
   response.json(signature);
 }));
 
