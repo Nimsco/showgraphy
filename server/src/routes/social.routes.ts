@@ -360,7 +360,7 @@ socialRouter.post('/conversations/:conversationId/uploads/signature', route(asyn
   const canStartRequest = conversation.status === 'pending' && String(conversation.requestedBy) === userId && !conversation.lastMessage;
   if ((conversation.status !== 'accepted' && !canStartRequest) || !otherId || await blockedEither(userId, otherId)) throw new HttpError(403, 'This conversation cannot receive an image yet.');
   const signature = createSocialUploadSignature(userId, 'message');
-  await SocialUploadReservation.create({ owner: userId, kind: 'message', publicId: signature.public_id, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
+  await SocialUploadReservation.create({ owner: userId, kind: 'message', publicId: `${signature.folder}/${signature.public_id}`, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
   response.json(signature);
 }));
 socialRouter.post('/conversations/:conversationId/messages', route(async (request, response) => {

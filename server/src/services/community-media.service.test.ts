@@ -14,7 +14,8 @@ describe('community media uploads', () => {
     }
     const result = createCommunityUploadSignature('user-123');
     expect(result.folder).toBe('showgraphy/community/user-123');
-    expect(result.public_id.startsWith(`${result.folder}/`)).toBe(true);
+    expect(result.public_id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(`${result.folder}/${result.public_id}`).toMatch(/^showgraphy\/community\/user-123\/[0-9a-f-]{36}$/i);
     expect(result.allowed_formats).toBe('jpg,jpeg,png,webp');
     expect(result).not.toHaveProperty('apiSecret');
     const params = { allowed_formats: result.allowed_formats, folder: result.folder, overwrite: result.overwrite, public_id: result.public_id, timestamp: result.timestamp };

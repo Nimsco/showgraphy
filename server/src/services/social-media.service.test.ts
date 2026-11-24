@@ -15,7 +15,8 @@ describe('social image uploads', () => {
     const result = createSocialUploadSignature('user-123', kind);
     const expectedFolder = kind === 'message' ? 'showgraphy/messages/user-123' : 'showgraphy/avatars/user-123';
     expect(result.folder).toBe(expectedFolder);
-    expect(result.public_id.startsWith(`${expectedFolder}/`)).toBe(true);
+    expect(result.public_id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(`${result.folder}/${result.public_id}`).toBe(`${expectedFolder}/${result.public_id}`);
     const params = { allowed_formats: result.allowed_formats, folder: result.folder, overwrite: result.overwrite, public_id: result.public_id, timestamp: result.timestamp };
     const canonical = Object.entries(params).sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${value}`).join('&');
     expect(result.signature).toBe(createHash('sha1').update(`${canonical}${env.CLOUDINARY_API_SECRET}`).digest('hex'));

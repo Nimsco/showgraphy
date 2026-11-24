@@ -40,14 +40,14 @@ usersRouter.patch('/me/username', authenticate, route(async (request, response) 
 usersRouter.post('/me/avatar-upload-signature', authenticate, route(async (request, response) => {
   const userId = String(request.auth!.userId);
   const signature = createSocialUploadSignature(userId, 'avatar');
-  await SocialUploadReservation.create({ owner: userId, kind: 'avatar', publicId: signature.public_id, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
+  await SocialUploadReservation.create({ owner: userId, kind: 'avatar', publicId: `${signature.folder}/${signature.public_id}`, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
   response.json(signature);
 }));
 
 usersRouter.patch('/me', authenticate, route(async (request, response) => {
   const input = z.object({
     bio: z.string().trim().max(280).optional(),
-    avatar: z.url().or(z.literal('')).optional(),
+    avatar: z.string().trim().max(2048).url().refine((value) => new URL(value).protocol === 'https:', 'Use a secure HTTPS image URL.').or(z.literal('')).optional(),
     avatarAsset: z.object({ publicId: z.string().trim().min(1).max(220), version: z.number().int().positive() }).nullable().optional(),
     profileVisibility: z.enum(['public', 'private']).optional(),
     themePreference: z.enum(['dark', 'light', 'ocean', 'forest', 'rose', 'sunset', 'ocean-light', 'sage-light', 'rose-light', 'sunset-light', 'system']).optional(),

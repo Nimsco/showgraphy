@@ -21,7 +21,11 @@ export async function cleanupExpiredSocialUploads(now = new Date()) {
         const attached = kind === 'message'
           ? await DirectMessage.exists({ 'image.publicId': reservation.publicId, deletedAt: null })
           : await User.exists({ avatarPublicId: reservation.publicId });
-        if (!attached) await destroySocialImage(reservation.publicId);
+        if (!attached) await Promise.all([
+          destroySocialImage(reservation.publicId),
+          // Remove assets created before public_id stopped repeating the signed folder path.
+          destroySocialImage(`${prefix}${reservation.publicId}`),
+        ]);
         await SocialUploadReservation.deleteOne({ _id: reservation._id });
       } catch (error) {
         console.warn('Could not clean up an abandoned image upload; it will be retried.', error instanceof Error ? error.message : 'Unknown storage error');

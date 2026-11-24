@@ -37,8 +37,9 @@ describe('community upload cleanup', () => {
 
     await cleanupExpiredCommunityUploads(new Date('2026-11-15T00:00:00.000Z'));
 
-    expect(mocks.destroy).toHaveBeenCalledOnce();
-    expect(mocks.destroy).toHaveBeenCalledWith('showgraphy/community/user-2/orphan');
+    expect(mocks.destroy).toHaveBeenCalledTimes(2);
+    expect(mocks.destroy).toHaveBeenNthCalledWith(1, 'showgraphy/community/user-2/orphan');
+    expect(mocks.destroy).toHaveBeenNthCalledWith(2, 'showgraphy/community/user-2/showgraphy/community/user-2/orphan');
     expect(mocks.deleteOne).toHaveBeenCalledTimes(2);
   });
 

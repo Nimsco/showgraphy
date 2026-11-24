@@ -11,13 +11,18 @@ export async function cleanupExpiredCommunityUploads(now = new Date()) {
     const reservations = await CommunityUploadReservation.find({ expiresAt: { $lte: now } }).sort({ expiresAt: 1 }).limit(100).lean();
     for (const reservation of reservations) {
       const ownerId = String(reservation.owner);
-      if (!reservation.publicId.startsWith(`showgraphy/community/${ownerId}/`)) {
+      const prefix = `showgraphy/community/${ownerId}/`;
+      if (!reservation.publicId.startsWith(prefix)) {
         await CommunityUploadReservation.deleteOne({ _id: reservation._id });
         continue;
       }
       try {
         const attached = await CommunityPost.exists({ 'images.publicId': reservation.publicId });
-        if (!attached) await destroyCommunityImage(reservation.publicId);
+        if (!attached) await Promise.all([
+          destroyCommunityImage(reservation.publicId),
+          // Remove assets created before public_id stopped repeating the signed folder path.
+          destroyCommunityImage(`${prefix}${reservation.publicId}`),
+        ]);
         await CommunityUploadReservation.deleteOne({ _id: reservation._id });
       } catch (error) {
         console.warn('Could not clean up an abandoned Community upload; it will be retried.', error instanceof Error ? error.message : 'Unknown storage error');

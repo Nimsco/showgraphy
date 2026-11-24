@@ -18,7 +18,8 @@ export function createCommunityUploadSignature(userId: string) {
   if (!configured) throw new HttpError(503, 'Community image uploads are not configured.');
   const timestamp = Math.floor(Date.now() / 1000);
   const folder = uploadFolder(userId);
-  const parameters = { allowed_formats: 'jpg,jpeg,png,webp', folder, public_id: `${folder}/${randomUUID()}`, timestamp, overwrite: 'false' };
+  // Cloudinary prefixes `folder` to `public_id`; keep the latter to a single segment.
+  const parameters = { allowed_formats: 'jpg,jpeg,png,webp', folder, public_id: randomUUID(), timestamp, overwrite: 'false' };
   return { ...parameters, signature: cloudinarySignature(parameters), cloudName: env.CLOUDINARY_CLOUD_NAME!, apiKey: env.CLOUDINARY_API_KEY! };
 }
 

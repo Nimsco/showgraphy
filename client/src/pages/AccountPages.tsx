@@ -185,6 +185,22 @@ async function createInsightsImage(stats: Statistics, username: string) {
   return new File([blob], `showgraphy-insights-${username}.png`, { type: 'image/png' });
 }
 
+function loadProfileImageUrl(value: string) {
+  return new Promise<string>((resolve, reject) => {
+    let url: URL;
+    try { url = new URL(value); }
+    catch { reject(new Error('Enter a valid image URL.')); return; }
+    if (url.protocol !== 'https:' || url.username || url.password) {
+      reject(new Error('Use a direct HTTPS image link without a username or password.'));
+      return;
+    }
+    const image = new Image();
+    image.onload = () => image.naturalWidth > 0 && image.naturalHeight > 0 ? resolve(url.href) : reject(new Error('This link does not contain a usable image.'));
+    image.onerror = () => reject(new Error('This link did not load an image. Check it and try again.'));
+    image.src = url.href;
+  });
+}
+
 export function InsightsPage() {
   const { user } = useAuth();
   const query = useQuery({ queryKey: ['stats'], queryFn: () => apiRequest<{ stats: Statistics }>('/stats') });
@@ -245,9 +261,11 @@ export function SettingsPage() {
   const [privacy, setPrivacy] = useState(user?.privacySettings ?? { showStats: true, showLists: true, showRatings: true, showActivity: true, showFavorites: true, allowMessageRequests: true });
   const [visibility, setVisibility] = useState(user?.profileVisibility ?? 'public');
   const [avatar, setAvatar] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
   const [avatarPreview, setAvatarPreview] = useState('');
   const [avatarAsset, setAvatarAsset] = useState<UploadedCloudinaryImage | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [checkingAvatarUrl, setCheckingAvatarUrl] = useState(false);
   const [avatarProgress, setAvatarProgress] = useState(0);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [favoriteTitleIds, setFavoriteTitleIds] = useState<string[]>(user?.favoriteTitleIds ?? []);
@@ -268,7 +286,7 @@ export function SettingsPage() {
     return { items: [first, ...remaining].flatMap((page) => page.items) };
   } });
 
-  useEffect(() => { if (user) { setBio(user.bio); setPrivacy(user.privacySettings); setVisibility(user.profileVisibility); setAvatar(user.avatar); setAvatarPreview(''); setAvatarAsset(null); setFavoriteTitleIds(user.favoriteTitleIds ?? []); } }, [user?.id]);
+  useEffect(() => { if (user) { setBio(user.bio); setPrivacy(user.privacySettings); setVisibility(user.profileVisibility); setAvatar(user.avatar); setAvatarUrl(user.avatar); setAvatarPreview(''); setAvatarAsset(null); setFavoriteTitleIds(user.favoriteTitleIds ?? []); } }, [user?.id]);
   useEffect(() => { if (!avatarPreview.startsWith('blob:')) return; const preview = avatarPreview; return () => URL.revokeObjectURL(preview); }, [avatarPreview]);
   async function chooseAvatar(file?: File) {
     if (!file) return;
@@ -276,15 +294,32 @@ export function SettingsPage() {
     try {
       const signature = await apiRequest<CloudinarySignature>('/users/me/avatar-upload-signature', { method: 'POST' });
       const uploaded = await uploadCloudinaryImage(file, signature, setAvatarProgress);
-      setAvatar(uploaded.secureUrl); setAvatarAsset(uploaded); setAvatarPreview('');
+      setAvatar(uploaded.secureUrl); setAvatarUrl(uploaded.secureUrl); setAvatarAsset(uploaded); setAvatarPreview('');
     } catch (cause) {
       setAvatarPreview(''); setError(cause instanceof Error ? cause.message : 'The profile image could not be uploaded.');
     } finally { setAvatarUploading(false); if (avatarInputRef.current) avatarInputRef.current.value = ''; }
   }
-  function clearAvatar() { setAvatar(''); setAvatarPreview(''); setAvatarAsset(null); setAvatarProgress(0); }
+  async function applyAvatarUrl() {
+    const value = avatarUrl.trim();
+    if (!value || checkingAvatarUrl) return;
+    setError(''); setSaveNotice(''); setCheckingAvatarUrl(true);
+    try { const validUrl = await loadProfileImageUrl(value); setAvatar(validUrl); setAvatarUrl(validUrl); setAvatarPreview(''); setAvatarAsset(null); setSaveNotice('Image link checked. Save settings to apply it.'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'This link did not load an image.'); }
+    finally { setCheckingAvatarUrl(false); }
+  }
+  function clearAvatar() { setAvatar(''); setAvatarUrl(''); setAvatarPreview(''); setAvatarAsset(null); setAvatarProgress(0); }
   async function saveProfile(event: FormEvent) {
     event.preventDefault(); setNotice(''); setSaveNotice(''); setError('');
-    try { const result = await apiRequest<{ user: UserType }>('/users/me', { method: 'PATCH', body: JSON.stringify({ bio, ...(avatarAsset ? { avatarAsset: { publicId: avatarAsset.publicId, version: avatarAsset.version } } : avatar !== user?.avatar ? { avatar } : {}), profileVisibility: visibility, privacySettings: privacy, favoriteTitleIds }) }); updateUser(result.user); setAvatarAsset(null); setSaveNotice('Your profile and privacy choices were saved.'); }
+    if (avatarUploading || checkingAvatarUrl) return;
+    let avatarToSave = avatar;
+    const linkDraft = avatarUrl.trim();
+    if (!avatarAsset && linkDraft && linkDraft !== avatar && linkDraft !== user?.avatar) {
+      setCheckingAvatarUrl(true);
+      try { avatarToSave = await loadProfileImageUrl(linkDraft); setAvatar(avatarToSave); }
+      catch (cause) { setError(cause instanceof Error ? cause.message : 'This link did not load an image.'); return; }
+      finally { setCheckingAvatarUrl(false); }
+    }
+    try { const result = await apiRequest<{ user: UserType }>('/users/me', { method: 'PATCH', body: JSON.stringify({ bio, ...(avatarAsset ? { avatarAsset: { publicId: avatarAsset.publicId, version: avatarAsset.version } } : avatarToSave !== user?.avatar ? { avatar: avatarToSave } : {}), profileVisibility: visibility, privacySettings: privacy, favoriteTitleIds }) }); updateUser(result.user); setAvatarAsset(null); setSaveNotice('Your profile and privacy choices were saved.'); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Settings could not be saved.'); }
   }
   async function changePassword(event: FormEvent) {
@@ -316,7 +351,7 @@ export function SettingsPage() {
     <form onSubmit={saveProfile} className="settings-form">
       <section className="settings-section"><div className="settings-section__intro"><UserRound size={19} /><div><h2>Profile details</h2><p>These details appear on your profile when you make it public.</p></div></div><div className="settings-section__content">
         <label>Username<input value={`@${user?.username ?? ''}`} readOnly /></label><label>Bio<textarea value={bio} onChange={(event) => setBio(event.target.value)} rows={3} maxLength={280} placeholder="A few words about what you like to watch" /><span className="field-count">{bio.length} / 280</span></label>
-        <div className="profile-image-picker"><span className="profile-image-picker__preview">{avatarPreview || avatar ? <img src={avatarPreview || avatar} alt="Profile image preview" /> : <UserRound size={28} />}</span><div className="profile-image-picker__details"><strong>Profile picture</strong><small>{avatarUploading ? `Uploading image · ${avatarProgress}%` : 'Choose a JPG, PNG, or WebP image under 8 MB.'}</small><div><input ref={avatarInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void chooseAvatar(event.currentTarget.files?.[0])} /><Button type="button" variant="outline" disabled={avatarUploading} onClick={() => avatarInputRef.current?.click()}><ImagePlus size={15} /> {avatarUploading ? 'Uploading…' : 'Choose image'}</Button>{(avatar || avatarPreview) && <Button type="button" variant="quiet" disabled={avatarUploading} onClick={clearAvatar}><Trash2 size={15} /> Remove</Button>}</div></div></div>
+        <div className="profile-image-picker"><span className="profile-image-picker__preview">{avatarPreview || avatar ? <img src={avatarPreview || avatar} alt="Profile image preview" /> : <UserRound size={28} />}</span><div className="profile-image-picker__details"><strong>Profile picture</strong><small>{avatarUploading ? `Uploading image · ${avatarProgress}%` : 'Choose an image or use a direct HTTPS link.'}</small><div><input ref={avatarInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void chooseAvatar(event.currentTarget.files?.[0])} /><Button type="button" variant="outline" disabled={avatarUploading || checkingAvatarUrl} onClick={() => avatarInputRef.current?.click()}><ImagePlus size={15} /> {avatarUploading ? 'Uploading…' : 'Choose image'}</Button>{(avatar || avatarPreview) && <Button type="button" variant="quiet" disabled={avatarUploading || checkingAvatarUrl} onClick={clearAvatar}><Trash2 size={15} /> Remove</Button>}</div><label className="profile-image-picker__url">Or use an image URL<input type="url" value={avatarUrl} onChange={(event) => { setAvatarUrl(event.target.value); setAvatarAsset(null); setAvatar(user?.avatar ?? ''); setAvatarPreview(''); setSaveNotice(''); }} placeholder="https://example.com/photo.jpg" maxLength={2048} disabled={avatarUploading || checkingAvatarUrl} /></label><Button type="button" variant="quiet" disabled={!avatarUrl.trim() || avatarUploading || checkingAvatarUrl} onClick={() => void applyAvatarUrl()}>{checkingAvatarUrl ? 'Checking image…' : 'Preview this link'}</Button></div></div>
         <label>Profile visibility<select value={visibility} onChange={(event) => setVisibility(event.target.value as 'public' | 'private')}><option value="public">Public</option><option value="private">Private</option></select></label><small className="profile-visibility-hint">Public lets anyone open your profile link. Private hides the profile from everyone except you. This does not expose your library; the switches below control which profile sections appear publicly.</small>
         <fieldset className="favorite-picker"><legend>Featured titles <small>Choose up to 10 · {favoriteTitleIds.length}/10 selected</small></legend>{library.data?.items.length ? library.data.items.map((entry) => <label key={entry.titleId._id}><input type="checkbox" checked={favoriteTitleIds.includes(entry.titleId._id)} disabled={!favoriteTitleIds.includes(entry.titleId._id) && favoriteTitleIds.length >= 10} onChange={(event) => setFavoriteTitleIds((value) => event.target.checked ? [...value, entry.titleId._id] : value.filter((id) => id !== entry.titleId._id))} /><span>{entry.titleId.title}</span></label>) : <p className="quiet-line">Add titles to your library to choose profile favorites.</p>}</fieldset>
         <Link className="inline-arrow" to={`/u/${user?.username}`}>Preview your profile <ArrowRight size={14} /></Link>
@@ -325,7 +360,7 @@ export function SettingsPage() {
         {([{ key: 'showStats', label: 'Viewing statistics', text: 'Totals and category counts' }, { key: 'showLists', label: 'Public collections', text: 'Collections marked public' }, { key: 'showRatings', label: 'Your ratings', text: 'Scores you have submitted' }, { key: 'showActivity', label: 'Recent activity', text: 'Titles marked completed' }, { key: 'showFavorites', label: 'Top 10 titles', text: 'Titles you chose to feature' }, { key: 'allowMessageRequests', label: 'Message requests', text: 'Allow requests from members you do not mutually follow' }] as const).map((item) => <label className="privacy-toggle" key={item.key}><span><strong>{item.label}</strong><small>{item.text}</small></span><input type="checkbox" checked={privacy[item.key] ?? true} onChange={(event) => setPrivacy((value) => ({ ...value, [item.key]: event.target.checked }))} /><span className="switch-ui" aria-hidden="true" /></label>)}
       </div></section>
       <section className="settings-section"><div className="settings-section__intro"><Monitor size={19} /><div><h2>Appearance &amp; accessibility</h2><p>Choose a color theme and reading size. Both preferences save to your account and follow you across devices.</p></div></div><div className="settings-section__content appearance-settings"><fieldset className="text-size-setting"><legend>Text size</legend><p>Choose the text size that feels most comfortable.</p><div className="text-size-options">{([{ value: 'small', label: 'Small', ratio: '90%' }, { value: 'default', label: 'Default', ratio: '100%' }, { value: 'large', label: 'Large', ratio: '115%' }] as const).map((option) => <label className={`text-size-option${textSizePreference === option.value ? ' is-selected' : ''}`} key={option.value}><input type="radio" name="textSizePreference" value={option.value} checked={textSizePreference === option.value} onChange={() => setTextSizePreference(option.value)} /><span className="text-size-option__name">{option.label}</span><span className="text-size-option__ratio">{option.ratio}</span></label>)}</div><p className="text-size-preview" aria-live="polite">A personal record of what moved you.</p><button className="text-size-reset" type="button" onClick={() => setTextSizePreference('default')}>Reset to default</button></fieldset><fieldset className="theme-picker"><legend className="visually-hidden">Color theme</legend>{themeGroups.map((group) => <div className="theme-group" key={group.label}><h3>{group.label}</h3><div className="theme-group__options">{group.options.map((theme) => <label className={`theme-choice${preference === theme.value ? ' is-selected' : ''}`} key={theme.value} data-theme-swatch={theme.value}><input type="radio" name="themePreference" value={theme.value} checked={preference === theme.value} onChange={() => setPreference(theme.value)} /><span className="theme-choice__palette" aria-hidden="true"><i /><i /><i /></span><span className="theme-choice__label">{theme.label}</span></label>)}</div></div>)}</fieldset></div></section>
-      <div className="settings-save"><span><ShieldCheck size={16} /> Appearance choices save automatically. Profile and privacy changes save with this button.</span><div className="settings-save__action">{saveNotice && <span className="settings-save__notice" role="status">{saveNotice}</span>}<Button type="submit"><Check size={15} /> Save settings</Button></div></div>
+      <div className="settings-save"><span><ShieldCheck size={16} /> Appearance choices save automatically. Profile and privacy changes save with this button.</span><div className="settings-save__action">{saveNotice && <span className="settings-save__notice" role="status">{saveNotice}</span>}<Button type="submit" disabled={avatarUploading || checkingAvatarUrl}><Check size={15} /> Save settings</Button></div></div>
     </form>
     <section className="settings-section password-section"><div className="settings-section__intro"><LockKeyhole size={19} /><div><h2>Password</h2><p>Use a new password with at least 8 characters.</p></div></div><form className="settings-section__content password-form" onSubmit={changePassword}><label>Current password<input type="password" autoComplete="current-password" minLength={1} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label><label>New password<input type="password" autoComplete="new-password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></label><Button type="submit" variant="outline">Update password</Button>{passwordNotice && <p className="success-inline" role="status">{passwordNotice}</p>}</form></section>
     <section className="settings-section"><div className="settings-section__intro"><Mail size={19} /><div><h2>Email address</h2><p>{user?.email}{user?.emailVerified ? ' · Verified' : ' · Not verified'}</p></div></div><div className="settings-section__content connection-row">{user?.emailVerified ? <strong className="verified-label"><Check size={14} /> Verified</strong> : <><span>{google.data?.emailEnabled ? 'Confirm your address to keep account recovery available.' : 'Email delivery is not configured on the server yet.'}</span><Button type="button" variant="outline" disabled={!google.data?.emailEnabled} onClick={() => void resendVerification()}>Send verification link</Button></>}</div></section>
