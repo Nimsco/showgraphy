@@ -2,10 +2,11 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
-import { Block, CommunityRating, Conversation, DirectMessage, Follow, MediaTitle, Notification, SocialReport, TitleReview, User, UserLibraryEntry } from '../models/index.js';
+import { Block, CommunityRating, Conversation, DirectMessage, Follow, MediaTitle, Notification, SocialReport, SocialUploadReservation, TitleReview, User, UserLibraryEntry } from '../models/index.js';
 import { HttpError, pageParams, route } from '../utils/http.js';
 import { emitDirectMessage, emitSocialNotification } from '../realtime/social-events.js';
 import { consumeChatMessageQuota } from '../services/chat.service.js';
+import { createSocialUploadSignature, destroySocialImage, verifySocialImage } from '../services/social-media.service.js';
 
 export const socialRouter = Router();
 socialRouter.use(authenticate);
@@ -53,6 +54,23 @@ async function conversationFor(idValue: string, userId: string) {
   const conversation = await Conversation.findById(idValue);
   if (!conversation || !conversation.participants.some((participant) => String(participant) === userId)) throw new HttpError(404, 'Conversation not found.');
   return conversation;
+}
+async function unreadCountsFor(conversations: Array<{ _id: unknown; participantState?: Array<{ userId: unknown; lastReadAt?: Date | null }> }>, userId: string) {
+  const viewerId = new mongoose.Types.ObjectId(userId);
+  const filters = conversations.map((conversation) => {
+    const state = conversation.participantState?.find((participant) => String(participant.userId) === userId);
+    return {
+      conversationId: conversation._id,
+      senderId: { $ne: viewerId },
+      ...(state?.lastReadAt ? { createdAt: { $gt: state.lastReadAt } } : {}),
+    };
+  });
+  if (!filters.length) return new Map<string, number>();
+  const rows = await DirectMessage.aggregate<{ _id: mongoose.Types.ObjectId; count: number }>([
+    { $match: { $or: filters } },
+    { $group: { _id: '$conversationId', count: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((row) => [String(row._id), row.count]));
 }
 async function publicUserRows(users: Array<{ _id: unknown; username: string; avatar?: string; bio?: string }>, viewerId: string) {
   const ids = users.map((user) => String(user._id));
@@ -252,13 +270,21 @@ socialRouter.get('/conversations', route(async (request, response) => {
   if (request.query.requests === 'true') { filter.status = 'pending'; filter.requestedBy = { $ne: request.auth!.userId }; }
   else filter.status = { $in: ['accepted', 'pending'] };
   const conversations = await Conversation.find(filter).sort({ lastMessageAt: -1, updatedAt: -1 }).skip(skip).limit(limit).populate('participants', 'username avatar bio').populate('lastMessage').lean();
+  const unreadCounts = await unreadCountsFor(conversations, String(request.auth!.userId));
   const items = conversations.map((item) => {
     const other = (item.participants as unknown as Array<{ _id: unknown; username: string; avatar: string; bio: string }>).find((person) => String(person._id) !== String(request.auth!.userId));
-    const state = item.participantState.find((participant) => String(participant.userId) === String(request.auth!.userId));
-    const message = item.lastMessage as { content?: string; senderId?: unknown } | null;
-    return { id: String(item._id), status: item.status, requestedBy: item.requestedBy, participant: other, lastMessage: message ? { content: message.content, senderId: message.senderId } : null, lastMessageAt: item.lastMessageAt, unread: Boolean(message && message.senderId && String(message.senderId) !== String(request.auth!.userId) && (!state?.lastReadAt || new Date(item.lastMessageAt ?? 0) > new Date(state.lastReadAt))) };
+    const message = item.lastMessage as { content?: string; senderId?: unknown; image?: unknown } | null;
+    const unreadCount = unreadCounts.get(String(item._id)) ?? 0;
+    return { id: String(item._id), status: item.status, requestedBy: item.requestedBy, participant: other, lastMessage: message ? { content: message.content || (message.image ? 'Photo' : ''), senderId: message.senderId } : null, lastMessageAt: item.lastMessageAt, unread: unreadCount > 0, unreadCount };
   });
   response.json({ items, page, hasMore: conversations.length === limit });
+}));
+
+socialRouter.get('/conversations/unread-count', route(async (request, response) => {
+  const userId = String(request.auth!.userId);
+  const conversations = await Conversation.find({ participants: userId, $or: [{ status: 'accepted' }, { status: 'pending', requestedBy: { $ne: userId } }] }).select('_id participantState').lean();
+  const unreadCounts = await unreadCountsFor(conversations, userId);
+  response.json({ unreadPeopleCount: [...unreadCounts.values()].filter((count) => count > 0).length });
 }));
 
 socialRouter.get('/conversations/:conversationId', route(async (request, response) => {
@@ -270,11 +296,11 @@ socialRouter.get('/conversations/:conversationId', route(async (request, respons
   const people = item.participants as unknown as Array<{ _id: unknown; username: string; avatar: string; bio: string }>;
   const participant = people.find((person) => String(person._id) !== String(request.auth!.userId));
   const state = item.participantState.find((entry) => String(entry.userId) === String(request.auth!.userId));
-  const message = item.lastMessage as { content?: string; senderId?: unknown } | null;
+  const message = item.lastMessage as { content?: string; senderId?: unknown; image?: unknown } | null;
   response.json({
     id: String(item._id), status: item.status, requestedBy: item.requestedBy ? String(item.requestedBy) : null,
     participant: participant ? { id: String(participant._id), username: participant.username, avatar: participant.avatar, bio: participant.bio } : null,
-    lastMessage: message ? { content: message.content ?? '', senderId: message.senderId ? String(message.senderId) : '' } : null,
+    lastMessage: message ? { content: message.content || (message.image ? 'Photo' : ''), senderId: message.senderId ? String(message.senderId) : '' } : null,
     lastMessageAt: item.lastMessageAt,
     unread: Boolean(message && message.senderId && String(message.senderId) !== String(request.auth!.userId) && (!state?.lastReadAt || new Date(item.lastMessageAt ?? 0) > new Date(state.lastReadAt))),
   });
@@ -327,11 +353,25 @@ socialRouter.get('/conversations/:conversationId/messages', route(async (request
   const items = await DirectMessage.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit).populate('senderId', 'username avatar').lean();
   response.json({ items: items.reverse(), hasMore: items.length === limit });
 }));
+socialRouter.post('/conversations/:conversationId/uploads/signature', route(async (request, response) => {
+  const userId = String(request.auth!.userId);
+  const conversation = await conversationFor(String(request.params.conversationId), userId);
+  const otherId = String(conversation.participants.find((person) => String(person) !== userId));
+  const canStartRequest = conversation.status === 'pending' && String(conversation.requestedBy) === userId && !conversation.lastMessage;
+  if ((conversation.status !== 'accepted' && !canStartRequest) || !otherId || await blockedEither(userId, otherId)) throw new HttpError(403, 'This conversation cannot receive an image yet.');
+  const signature = createSocialUploadSignature(userId, 'message');
+  await SocialUploadReservation.create({ owner: userId, kind: 'message', publicId: signature.public_id, expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) });
+  response.json(signature);
+}));
 socialRouter.post('/conversations/:conversationId/messages', route(async (request, response) => {
   const conversation = await conversationFor(String(request.params.conversationId), String(request.auth!.userId));
   if (conversation.status === 'declined') throw new HttpError(403, 'This conversation is unavailable.');
-  const content = z.string().trim().min(1).max(2000).parse(request.body?.content);
-  const clientMessageId = z.string().uuid().parse(request.body?.clientMessageId);
+  const input = z.object({
+    content: z.string().trim().max(2000).default(''),
+    clientMessageId: z.string().uuid(),
+    image: z.object({ publicId: z.string().trim().min(1).max(220), version: z.number().int().positive() }).optional(),
+  }).refine((value) => value.content.length > 0 || Boolean(value.image), 'Add text or choose an image.').parse(request.body);
+  const { content, clientMessageId } = input;
   const existing = await DirectMessage.findOne({ senderId: request.auth!.userId, clientMessageId });
   if (existing) {
     if (String(existing.conversationId) !== String(conversation._id)) throw new HttpError(409, 'Message identifier already used.');
@@ -341,9 +381,17 @@ socialRouter.post('/conversations/:conversationId/messages', route(async (reques
   if (conversation.status !== 'accepted' && !canStartRequest) throw new HttpError(403, 'This message request has not been accepted.');
   const targetId = String(conversation.participants.find((person) => String(person) !== String(request.auth!.userId)));
   if (await blockedEither(String(request.auth!.userId), targetId)) throw new HttpError(403, 'This conversation is unavailable.');
+  let image: Awaited<ReturnType<typeof verifySocialImage>> | null = null;
+  let imageReservationId: unknown;
+  if (input.image) {
+    const reservation = await SocialUploadReservation.findOne({ owner: request.auth!.userId, kind: 'message', publicId: input.image.publicId, expiresAt: { $gt: new Date() } }).select('_id').lean();
+    if (!reservation) throw new HttpError(400, 'Choose the image again before sending it.');
+    image = await verifySocialImage(String(request.auth!.userId), 'message', input.image);
+    imageReservationId = reservation._id;
+  }
   if (!consumeChatMessageQuota(String(request.auth!.userId))) throw new HttpError(429, 'You are sending messages too quickly. Wait a few seconds and try again.');
   let message;
-  try { message = await DirectMessage.create({ conversationId: conversation._id, senderId: request.auth!.userId, content, clientMessageId }); }
+  try { message = await DirectMessage.create({ conversationId: conversation._id, senderId: request.auth!.userId, content, image, clientMessageId }); }
   catch (cause) {
     if (!(cause && typeof cause === 'object' && 'code' in cause && cause.code === 11000)) throw cause;
     const duplicate = await DirectMessage.findOne({ senderId: request.auth!.userId, clientMessageId });
@@ -353,9 +401,10 @@ socialRouter.post('/conversations/:conversationId/messages', route(async (reques
   conversation.lastMessage = message._id;
   conversation.lastMessageAt = message.createdAt;
   await conversation.save();
+  if (imageReservationId) await SocialUploadReservation.deleteOne({ _id: imageReservationId });
   emitDirectMessage(String(conversation._id), conversation.participants.map(String), {
     _id: String(message._id), conversationId: String(conversation._id), senderId: String(request.auth!.userId),
-    content, clientMessageId, createdAt: message.createdAt.toISOString(),
+    content, image, clientMessageId, createdAt: message.createdAt.toISOString(),
   });
   response.status(201).json({ message });
 }));
@@ -388,10 +437,13 @@ socialRouter.delete('/conversations/:conversationId/messages/:messageId', route(
   if (!message) throw new HttpError(404, 'Your message could not be found.');
   message.content = 'Message deleted.';
   message.deletedAt = new Date();
+  const imagePublicId = message.image?.publicId;
+  message.image = null;
   await message.save();
+  if (imagePublicId) await destroySocialImage(imagePublicId).catch(() => undefined);
   emitDirectMessage(String(conversation._id), conversation.participants.map(String), {
     _id: String(message._id), conversationId: String(conversation._id), senderId: userId, content: message.content,
-    clientMessageId: message.clientMessageId, createdAt: message.createdAt.toISOString(), deletedAt: message.deletedAt.toISOString(),
+    image: null, clientMessageId: message.clientMessageId, createdAt: message.createdAt.toISOString(), deletedAt: message.deletedAt.toISOString(),
   });
   response.status(204).end();
 }));

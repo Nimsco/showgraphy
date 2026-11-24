@@ -1,11 +1,12 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, Flag, MessageCircle, Pencil, Search, Send, Shield, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Check, Flag, ImagePlus, MessageCircle, Pencil, Search, Send, Shield, Trash2, UserRound, X } from 'lucide-react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { Button, ConfirmDialog, EmptyState, LoadingLine, PageHeading, Poster } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { ApiError, apiRequest, getAccessToken, refreshAccessTokenStatus } from '../lib/api';
+import { uploadCloudinaryImage, type CloudinarySignature, type UploadedCloudinaryImage } from '../lib/cloudinary';
 import type { MediaTitle } from '../types';
 
 type Person = { id?: string; _id?: string; username: string; avatar: string; bio: string; isFollowing?: boolean; mutualFollowers?: number };
@@ -115,7 +116,7 @@ export function NotificationsPage() {
   return <SocialPage>{actionError && <p className="form-alert" role="alert">{actionError}</p>}<PageHeading eyebrow="Your community" title="Notifications" action={Boolean(query.data?.unreadCount) ? <Button variant="outline" onClick={() => void markAllRead()}>Mark all read</Button> : undefined} /><nav className="social-tabs" aria-label="Notification filter"><button type="button" className={!unreadOnly ? 'is-active' : ''} onClick={() => { setUnreadOnly(false); setPage(1); }}>All</button><button type="button" className={unreadOnly ? 'is-active' : ''} onClick={() => { setUnreadOnly(true); setPage(1); }}>Unread {query.data?.unreadCount ? `(${query.data.unreadCount})` : ''}</button></nav>{query.isLoading ? <LoadingLine label="Checking notifications" /> : query.error ? <EmptyState title="Notifications could not load" description={query.error instanceof Error ? query.error.message : 'Try again shortly.'} action={<Button variant="outline" onClick={() => void query.refetch()}>Try again</Button>} /> : query.data?.items.length ? <><div className="social-list">{query.data.items.map((notice) => <article className={`notice-row${notice.readAt ? '' : ' is-unread'}`} key={notice._id} onClick={() => !notice.readAt && void markRead(notice._id)}><UserAvatar user={notice.actor} /><span><Link to={`/u/${notice.actor.username}`}>@{notice.actor.username}</Link> {noticeCopy[notice.type] ?? 'sent you a notification'}{communityTypes.has(notice.type) && notice.resourceId && <> · <Link to={`/community/post/${notice.resourceId}`} onClick={() => !notice.readAt && void markRead(notice._id)}>View discussion</Link></>}<small>{new Date(notice.createdAt).toLocaleString()}</small></span>{notice.type === 'follow' && !notice.isFollowing && <Button variant="outline" onClick={(event) => { event.stopPropagation(); void followBack(notice.actor.username); }}>Follow back</Button>}{notice.type === 'message_request' && <Link className="button button--outline" to="/messages/requests">View request</Link>}</article>)}</div><div className="social-pagination"><Button variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Newer</Button><span>Page {page}</span><Button variant="outline" disabled={!query.data.hasMore} onClick={() => setPage((value) => value + 1)}>Older</Button></div></> : <EmptyState title={unreadOnly ? 'All caught up' : 'No notifications yet'} description={unreadOnly ? 'You have no unread notifications.' : 'New followers, discussions, and message requests will show up here.'} />}</SocialPage>;
 }
 
-type Conversation = { id: string; status: 'accepted' | 'pending'; requestedBy?: string; participant: Person; lastMessage: { content: string; senderId: string } | null; lastMessageAt?: string; unread: boolean };
+type Conversation = { id: string; status: 'accepted' | 'pending'; requestedBy?: string; participant: Person; lastMessage: { content: string; senderId: string } | null; lastMessageAt?: string; unread: boolean; unreadCount?: number };
 export function MessagesPage({ requests = false }: { requests?: boolean }) {
   const { user, logout } = useAuth();
   const client = useQueryClient();
@@ -127,21 +128,31 @@ export function MessagesPage({ requests = false }: { requests?: boolean }) {
     const socket = io(import.meta.env.VITE_SOCKET_URL || (import.meta.env.PROD ? 'https://showgraphy.onrender.com' : 'http://localhost:5000'), { path: '/socket.io', transports: ['websocket'], auth: (callback) => callback({ token: getAccessToken() }) });
     const cleanupAuth = keepSocialSocketAuthenticated(socket, () => { void logout(); });
     socket.on('dm:presence', ({ userIds }) => setOnlineIds(userIds));
-    socket.on('dm:message', () => { void client.invalidateQueries({ queryKey: ['social', 'conversations'] }); });
+    socket.on('dm:message', () => { void client.invalidateQueries({ queryKey: ['social', 'conversations'] }); void client.invalidateQueries({ queryKey: ['social', 'conversation-unread-count'] }); });
     socket.on('social:notification', () => { void client.invalidateQueries({ queryKey: ['social', 'notifications'] }); void client.invalidateQueries({ queryKey: ['social', 'conversations'] }); });
     socket.on('disconnect', () => setOnlineIds([]));
     return () => { cleanupAuth(); socket.disconnect(); };
   }, [user?.id, client, logout]);
-  const items = (query.data?.pages.flatMap((page) => page.items) ?? []).filter((item) => `${item.participant.username} ${item.lastMessage?.content ?? ''}`.toLowerCase().includes(search.trim().toLowerCase()));
-  return <SocialPage><PageHeading eyebrow="Private conversations" title={requests ? 'Message requests' : 'Messages'} action={<Link className="inline-arrow" to={requests ? '/messages' : '/messages/requests'}>{requests ? 'Inbox' : 'Requests'} <MessageCircle size={15} /></Link>} /><label className="social-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" aria-label="Search conversations" /></label>{query.isLoading ? <LoadingLine label="Opening your inbox" /> : query.error ? <EmptyState title="Messages could not load" description={query.error instanceof Error ? query.error.message : 'Try again shortly.'} action={<Button variant="outline" onClick={() => void query.refetch()}>Try again</Button>} /> : items.length ? <><div className="social-list">{items.map((item) => { const personId = String(item.participant.id ?? item.participant._id ?? ''); return <Link className={`conversation-row${item.unread ? ' is-unread' : ''}`} key={item.id} to={`/messages/${item.id}`}><span className="conversation-row__avatar"><UserAvatar user={item.participant} />{onlineIds.includes(personId) && <i aria-label="Online" />}</span><span><strong>@{item.participant.username}</strong><small>{item.lastMessage?.content ?? (item.status === 'pending' ? 'Message request' : 'Start a conversation')}</small></span><time>{item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}</time>{item.unread && <i />}</Link>; })}</div>{query.hasNextPage && <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? 'Loading…' : 'Load more conversations'}</Button>}</> : <EmptyState title={search ? 'No conversations found' : requests ? 'No message requests' : 'Your inbox is empty'} description={search ? 'Try another name or message.' : requests ? 'Requests from other members will appear here.' : 'Visit a member’s profile and choose Message to start a conversation.'} action={query.hasNextPage ? <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? 'Loading…' : 'Search older conversations'}</Button> : !requests && !search ? <Link className="button button--outline" to="/people">Discover people</Link> : undefined} />}</SocialPage>;
+  const unreadQuery = useQuery({ queryKey: ['social', 'conversation-unread-count'], queryFn: () => apiRequest<{ unreadPeopleCount: number }>('/social/conversations/unread-count'), enabled: Boolean(user?.id) && !requests, refetchInterval: 20_000, refetchOnWindowFocus: true });
+  const unreadPeopleCount = unreadQuery.data?.unreadPeopleCount ?? 0;
+  const items = (query.data?.pages.flatMap((page) => page.items) ?? [])
+    .filter((item) => `${item.participant.username} ${item.lastMessage?.content ?? ''}`.toLowerCase().includes(search.trim().toLowerCase()))
+    .sort((left, right) => Date.parse(right.lastMessageAt ?? '') - Date.parse(left.lastMessageAt ?? ''));
+  return <SocialPage><PageHeading eyebrow="Private conversations" title={requests ? 'Message requests' : 'Messages'} description={!requests && unreadPeopleCount ? `${unreadPeopleCount} ${unreadPeopleCount === 1 ? 'person has' : 'people have'} unread messages.` : undefined} action={<Link className="inline-arrow" to={requests ? '/messages' : '/messages/requests'}>{requests ? 'Inbox' : 'Requests'} <MessageCircle size={15} /></Link>} /><label className="social-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" aria-label="Search conversations" /></label>{query.isLoading ? <LoadingLine label="Opening your inbox" /> : query.error ? <EmptyState title="Messages could not load" description={query.error instanceof Error ? query.error.message : 'Try again shortly.'} action={<Button variant="outline" onClick={() => void query.refetch()}>Try again</Button>} /> : items.length ? <><div className="social-list">{items.map((item) => { const personId = String(item.participant.id ?? item.participant._id ?? ''); const unreadCount = item.unreadCount ?? (item.unread ? 1 : 0); return <Link className={`conversation-row${unreadCount ? ' is-unread' : ''}`} key={item.id} to={`/messages/${item.id}`}><span className="conversation-row__avatar"><UserAvatar user={item.participant} />{onlineIds.includes(personId) && <i aria-label="Online" />}</span><span><strong>@{item.participant.username}</strong><small>{item.lastMessage?.content ?? (item.status === 'pending' ? 'Message request' : 'Start a conversation')}</small></span><time>{item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}</time>{unreadCount > 0 && <span className="conversation-row__unread-count" aria-label={`${unreadCount} unread messages`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</Link>; })}</div>{query.hasNextPage && <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? 'Loading…' : 'Load more conversations'}</Button>}</> : <EmptyState title={search ? 'No conversations found' : requests ? 'No message requests' : 'Your inbox is empty'} description={search ? 'Try another name or message.' : requests ? 'Requests from other members will appear here.' : 'Visit a member’s profile and choose Message to start a conversation.'} action={query.hasNextPage ? <Button variant="outline" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? 'Loading…' : 'Search older conversations'}</Button> : !requests && !search ? <Link className="button button--outline" to="/people">Discover people</Link> : undefined} />}</SocialPage>;
 }
 
-type DirectMessage = { _id: string; conversationId?: string; content: string; senderId: string | Person; createdAt: string; editedAt?: string | null; deletedAt?: string | null; clientMessageId?: string };
+type DirectMessage = { _id: string; conversationId?: string; content: string; image?: UploadedCloudinaryImage | null; senderId: string | Person; createdAt: string; editedAt?: string | null; deletedAt?: string | null; clientMessageId?: string };
 export function ConversationPage() {
   const { conversationId = '' } = useParams();
   const { user, logout } = useAuth();
   const client = useQueryClient();
   const [draft, setDraft] = useState('');
+  const [attachedImage, setAttachedImage] = useState<UploadedCloudinaryImage | null>(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [activeMessageActions, setActiveMessageActions] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [someoneTyping, setSomeoneTyping] = useState(false);
@@ -158,6 +169,9 @@ export function ConversationPage() {
   const [reportError, setReportError] = useState('');
   const socketRef = useRef<Socket | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const imageUploadTokenRef = useRef(0);
+  const longPressTimerRef = useRef<number | null>(null);
   const lastMessageIdRef = useRef<string | null>(null);
   const typingTimerRef = useRef<number | null>(null);
   const typingSelfRef = useRef(false);
@@ -165,6 +179,12 @@ export function ConversationPage() {
   const conversationQuery = useQuery({ queryKey: ['social', 'conversation', conversationId], queryFn: () => apiRequest<Conversation>(`/social/conversations/${conversationId}`), enabled: Boolean(conversationId) });
   const conversation = conversationQuery.data;
   const messages = useQuery({ queryKey: ['social', 'messages', conversationId], queryFn: () => apiRequest<Page<DirectMessage>>(`/social/conversations/${conversationId}/messages?limit=50`), enabled: Boolean(conversationId && conversation) });
+  useEffect(() => () => { imageUploadTokenRef.current += 1; }, []);
+  useEffect(() => {
+    if (!imagePreview.startsWith('blob:')) return;
+    const preview = imagePreview;
+    return () => URL.revokeObjectURL(preview);
+  }, [imagePreview]);
   const lastMessageId = messages.data?.items.at(-1)?._id ?? null;
   useEffect(() => {
     const container = messagesScrollRef.current;
@@ -173,7 +193,7 @@ export function ConversationPage() {
     if (!lastMessageIdRef.current || wasNearBottom) container.scrollTo({ top: container.scrollHeight, behavior: lastMessageIdRef.current ? 'smooth' : 'auto' });
     lastMessageIdRef.current = lastMessageId;
   }, [lastMessageId]);
-  useEffect(() => { if (conversation?.status === 'accepted') { void apiRequest(`/social/conversations/${conversationId}/read`, { method: 'PATCH' }).then(() => client.invalidateQueries({ queryKey: ['social', 'conversations'] })); } }, [conversation?.status, conversationId, client]);
+  useEffect(() => { if (conversation?.status === 'accepted') { void apiRequest(`/social/conversations/${conversationId}/read`, { method: 'PATCH' }).then(() => Promise.all([client.invalidateQueries({ queryKey: ['social', 'conversations'] }), client.invalidateQueries({ queryKey: ['social', 'conversation-unread-count'] })])); } }, [conversation?.status, conversationId, client]);
   useEffect(() => {
     if (!user?.id || !conversation) return;
     let active = true;
@@ -192,7 +212,7 @@ export function ConversationPage() {
       refreshing = false;
     };
     socket.on('connect', () => socket.emit('dm:join', { conversationId }, (result: { ok: boolean; message?: string }) => { if (!result.ok) setError(result.message ?? 'Conversation could not be opened.'); else { if (conversation.status === 'accepted') socket.emit('dm:read', { conversationId }); void client.invalidateQueries({ queryKey: ['social', 'messages', conversationId] }); } }));
-    socket.on('dm:message', ({ conversationId: id }) => { if (id === conversationId) void client.invalidateQueries({ queryKey: ['social', 'messages', conversationId] }); void client.invalidateQueries({ queryKey: ['social', 'conversations'] }); });
+    socket.on('dm:message', ({ conversationId: id }) => { if (id === conversationId) void client.invalidateQueries({ queryKey: ['social', 'messages', conversationId] }); void client.invalidateQueries({ queryKey: ['social', 'conversations'] }); void client.invalidateQueries({ queryKey: ['social', 'conversation-unread-count'] }); });
     socket.on('dm:read', ({ conversationId: id }) => { if (id === conversationId) void client.invalidateQueries({ queryKey: ['social', 'conversations'] }); });
     socket.on('dm:typing', ({ conversationId: id, typing, username }) => { if (id === conversationId && username !== user.username) setSomeoneTyping(typing); });
     socket.on('dm:presence', ({ userIds }) => setOnlineIds(userIds));
@@ -214,7 +234,84 @@ export function ConversationPage() {
       typingSelfRef.current = false;
     }
   }
-  async function send(event: FormEvent) { event.preventDefault(); const content = draft.trim(); if (!content || !user) return; if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current); typingTimerRef.current = null; if (typingSelfRef.current) socketRef.current?.emit('dm:typing', { conversationId, typing: false }); typingSelfRef.current = false; const clientMessageId = crypto.randomUUID(); const optimistic: DirectMessage = { _id: `pending-${clientMessageId}`, conversationId, content, senderId: user.id, clientMessageId, createdAt: new Date().toISOString() }; client.setQueryData<Page<DirectMessage>>(['social', 'messages', conversationId], (current) => ({ items: [...(current?.items ?? []), optimistic], hasMore: current?.hasMore ?? false, page: current?.page ?? 1 })); setDraft(''); setError(''); try { const socket = socketRef.current; if (socket?.connected) { await new Promise<void>((resolve, reject) => socket.emit('dm:send', { conversationId, content, clientMessageId }, (result: { ok: boolean; message?: string; code?: string }) => result.ok ? resolve() : reject(new Error(result.message ?? 'Message could not be sent.')))); } else { await apiRequest(`/social/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content, clientMessageId }) }); } await Promise.all([client.invalidateQueries({ queryKey: ['social', 'messages', conversationId] }), client.invalidateQueries({ queryKey: ['social', 'conversations'] })]); } catch (cause) { client.setQueryData<Page<DirectMessage>>(['social', 'messages', conversationId], (current) => current ? { ...current, items: current.items.filter((message) => message.clientMessageId !== clientMessageId) } : current); setDraft(content); setError(cause instanceof Error ? cause.message : 'Message could not be sent.'); } }
+  async function chooseMessageImage(file?: File) {
+    if (!file) return;
+    const token = imageUploadTokenRef.current + 1;
+    imageUploadTokenRef.current = token;
+    setError('');
+    setAttachedImage(null);
+    setImagePreview(URL.createObjectURL(file));
+    setUploadingImage(true);
+    setUploadProgress(0);
+    try {
+      const signature = await apiRequest<CloudinarySignature>(`/social/conversations/${conversationId}/uploads/signature`, { method: 'POST' });
+      const uploaded = await uploadCloudinaryImage(file, signature, setUploadProgress);
+      if (token !== imageUploadTokenRef.current) return;
+      setAttachedImage(uploaded);
+      setImagePreview(uploaded.secureUrl);
+    } catch (cause) {
+      if (token === imageUploadTokenRef.current) {
+        setAttachedImage(null);
+        setImagePreview('');
+        setError(cause instanceof Error ? cause.message : 'The image could not be uploaded.');
+      }
+    } finally {
+      if (token === imageUploadTokenRef.current) setUploadingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = '';
+    }
+  }
+  function clearMessageImage() {
+    imageUploadTokenRef.current += 1;
+    setAttachedImage(null);
+    setImagePreview('');
+    setUploadingImage(false);
+    setUploadProgress(0);
+  }
+  function startMessageActionPress(messageId: string, event: PointerEvent<HTMLElement>) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (event.target instanceof Element && event.target.closest('button')) return;
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => setActiveMessageActions(messageId), 480);
+  }
+  function stopMessageActionPress() {
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  }
+  function revealMessageActions(event: KeyboardEvent<HTMLElement>, messageId: string) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setActiveMessageActions((current) => current === messageId ? null : messageId);
+    }
+  }
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    const content = draft.trim();
+    if ((!content && !attachedImage) || uploadingImage || sendingMessage || !user) return;
+    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = null;
+    if (typingSelfRef.current) socketRef.current?.emit('dm:typing', { conversationId, typing: false });
+    typingSelfRef.current = false;
+    const clientMessageId = crypto.randomUUID();
+    const optimistic: DirectMessage = { _id: `pending-${clientMessageId}`, conversationId, content, image: attachedImage, senderId: user.id, clientMessageId, createdAt: new Date().toISOString() };
+    client.setQueryData<Page<DirectMessage>>(['social', 'messages', conversationId], (current) => ({ items: [...(current?.items ?? []), optimistic], hasMore: current?.hasMore ?? false, page: current?.page ?? 1 }));
+    setDraft('');
+    setError('');
+    setSendingMessage(true);
+    try {
+      const socket = socketRef.current;
+      if (!attachedImage && socket?.connected) {
+        await new Promise<void>((resolve, reject) => socket.emit('dm:send', { conversationId, content, clientMessageId }, (result: { ok: boolean; message?: string; code?: string }) => result.ok ? resolve() : reject(new Error(result.message ?? 'Message could not be sent.'))));
+      } else {
+        await apiRequest(`/social/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content, clientMessageId, ...(attachedImage ? { image: { publicId: attachedImage.publicId, version: attachedImage.version } } : {}) }) });
+      }
+      clearMessageImage();
+      await Promise.all([client.invalidateQueries({ queryKey: ['social', 'messages', conversationId] }), client.invalidateQueries({ queryKey: ['social', 'conversations'] }), client.invalidateQueries({ queryKey: ['social', 'conversation-unread-count'] })]);
+    } catch (cause) {
+      client.setQueryData<Page<DirectMessage>>(['social', 'messages', conversationId], (current) => current ? { ...current, items: current.items.filter((message) => message.clientMessageId !== clientMessageId) } : current);
+      setDraft(content);
+      setError(cause instanceof Error ? cause.message : 'Message could not be sent.');
+    } finally { setSendingMessage(false); }
+  }
   async function loadOlderMessages() {
     const first = messages.data?.items[0];
     if (!first || !messages.data?.hasMore || loadingOlder) return;
@@ -262,10 +359,13 @@ export function ConversationPage() {
   if (conversationQuery.isLoading) return <main className="social-page conversation-page"><LoadingLine label="Opening conversation" /></main>;
   if (conversationQuery.error || !conversation) return <main className="social-page conversation-page"><EmptyState title="Conversation unavailable" description={conversationQuery.error instanceof Error ? conversationQuery.error.message : 'This conversation is no longer available.'} action={<Link className="button button--outline" to="/messages">Back to messages</Link>} /></main>;
   const participantId = String(participant?.id ?? participant?._id ?? '');
-  return <main className="social-page conversation-page"><header className="conversation-header"><Link to="/messages" className="icon-button" aria-label="Back to inbox"><ArrowLeft size={18} /></Link><Link to={participant ? `/u/${participant.username}` : '/messages'} className="conversation-header__avatar" aria-label={`Open @${participant?.username ?? 'member'} profile`}><UserAvatar user={participant} /></Link><span className="conversation-header__identity"><Link to={participant ? `/u/${participant.username}` : '/messages'}><strong>@{participant?.username ?? 'Conversation'}</strong></Link><small>{onlineIds.includes(participantId) ? 'Online' : 'Offline'}</small></span><Link className="inline-arrow" to={participant ? `/u/${participant.username}` : '/messages'}>Profile</Link></header>{error && <p className="form-alert" role="alert">{error}</p>}
+  return <main className="social-page conversation-page"><header className="conversation-header"><Link to="/messages" className="icon-button" aria-label="Back to inbox"><ArrowLeft size={18} /></Link><Link to={participant ? `/u/${participant.username}` : '/messages'} className="conversation-header__avatar" aria-label={`Open @${participant?.username ?? 'member'} profile`}><UserAvatar user={participant} /></Link><span className="conversation-header__identity"><Link to={participant ? `/u/${participant.username}` : '/messages'}><strong>@{participant?.username ?? 'Conversation'}</strong></Link><small>{onlineIds.includes(participantId) ? 'Online' : 'Offline'}</small></span></header>{error && <p className="form-alert" role="alert">{error}</p>}
     {conversation?.status === 'pending' ? <section className="request-panel"><p>{conversation.requestedBy === user?.id ? 'Your message request is waiting for a reply.' : 'This member sent you a message request.'}</p>{conversation.lastMessage && <blockquote>{conversation.lastMessage.content}</blockquote>}{conversation.requestedBy === user?.id && !conversation.lastMessage && <form className="direct-composer request-composer" onSubmit={send}><label className="visually-hidden" htmlFor="direct-message-content">Write your message request</label><textarea id="direct-message-content" rows={2} maxLength={2000} value={draft} onChange={(event) => updateMessageDraft(event.target.value)} placeholder="Write a short message request…" /><Button type="submit" disabled={!draft.trim()}><Send size={16} /> Send request</Button></form>}{conversation.requestedBy !== user?.id && <div><Button onClick={() => void requestAction('accept')}>Accept</Button><Button variant="outline" onClick={() => void requestAction('decline')}>Decline</Button></div>}</section> : <>
-      {messages.isLoading ? <LoadingLine label="Loading conversation" /> : messages.error ? <EmptyState title="Conversation could not load" description={messages.error instanceof Error ? messages.error.message : 'Try again shortly.'} action={<Button variant="outline" onClick={() => void messages.refetch()}>Try again</Button>} /> : <div className="direct-messages" ref={messagesScrollRef}>{messages.data?.hasMore && <button className="chat-history-more" type="button" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}{messages.data?.items.map((message, index, items) => { const senderId = typeof message.senderId === 'string' ? message.senderId : message.senderId?._id; const own = senderId === user?.id; const day = new Date(message.createdAt).toDateString(); const previousDay = index > 0 ? new Date(items[index - 1]!.createdAt).toDateString() : ''; return <Fragment key={message._id}>{day !== previousDay && <div className="direct-date"><span>{directDayLabel(message.createdAt)}</span></div>}<article className={`direct-message${own ? ' is-own' : ''}${message.deletedAt ? ' is-deleted' : ''}`}><p>{message.deletedAt ? 'This message was deleted.' : message.content}</p><time>{message.editedAt && !message.deletedAt ? 'Edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</time>{!message.deletedAt && !message._id.startsWith('pending-') && <div className="direct-message__actions">{own ? <><button type="button" aria-label="Edit your message" onClick={() => { setEditDraft(message.content); setEditError(''); setEditTarget(message); }}><Pencil size={13} /></button><button type="button" aria-label="Delete your message" onClick={() => { setDeleteError(''); setDeleteTarget(message); }}><Trash2 size={13} /></button></> : <button type="button" aria-label="Report message" onClick={() => { setReportError(''); setReportTarget(message); }}><Flag size={13} /></button>}</div>}</article></Fragment>; })}</div>}
-      {someoneTyping && <p className="direct-typing">Someone is typing…</p>}<form className="direct-composer" onSubmit={send}><label className="visually-hidden" htmlFor="direct-message-content">Write a message</label><textarea id="direct-message-content" rows={1} maxLength={2000} value={draft} onChange={(event) => updateMessageDraft(event.target.value)} placeholder="Write a message…" /> <Button type="submit" disabled={!draft.trim()} aria-label="Send message"><Send size={16} /></Button></form>
+      {messages.isLoading ? <LoadingLine label="Loading conversation" /> : messages.error ? <EmptyState title="Conversation could not load" description={messages.error instanceof Error ? messages.error.message : 'Try again shortly.'} action={<Button variant="outline" onClick={() => void messages.refetch()}>Try again</Button>} /> : <div className="direct-messages" ref={messagesScrollRef}>{messages.data?.hasMore && <button className="chat-history-more" type="button" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}{messages.data?.items.map((message, index, items) => { const senderId = typeof message.senderId === 'string' ? message.senderId : message.senderId?._id; const own = senderId === user?.id; const day = new Date(message.createdAt).toDateString(); const previousDay = index > 0 ? new Date(items[index - 1]!.createdAt).toDateString() : ''; return <Fragment key={message._id}>{day !== previousDay && <div className="direct-date"><span>{directDayLabel(message.createdAt)}</span></div>}<article className={`direct-message${own ? ' is-own' : ''}${message.deletedAt ? ' is-deleted' : ''}${activeMessageActions === message._id ? ' is-actions-open' : ''}`} tabIndex={0} aria-label={`Message from ${own ? 'you' : `@${participant?.username ?? 'member'}`}. Hold or press Enter to show actions.`} onPointerDown={(event) => startMessageActionPress(message._id, event)} onPointerUp={stopMessageActionPress} onPointerCancel={stopMessageActionPress} onPointerLeave={stopMessageActionPress} onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => revealMessageActions(event, message._id)}><div className="direct-message__content">{message.image && !message.deletedAt && <a className="direct-message__image" href={message.image.secureUrl} target="_blank" rel="noreferrer"><img src={message.image.secureUrl} alt="Image shared in this conversation" loading="lazy" /></a>}{(message.content || message.deletedAt) && <p>{message.deletedAt ? 'This message was deleted.' : message.content}</p>}</div><time>{message.editedAt && !message.deletedAt ? 'Edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</time>{!message.deletedAt && !message._id.startsWith('pending-') && <div className="direct-message__actions" aria-label="Message actions">{own ? <><button type="button" aria-label="Edit your message" onClick={() => { setActiveMessageActions(null); setEditDraft(message.content); setEditError(''); setEditTarget(message); }}><Pencil size={15} /></button><button type="button" aria-label="Delete your message" onClick={() => { setActiveMessageActions(null); setDeleteError(''); setDeleteTarget(message); }}><Trash2 size={15} /></button></> : <button type="button" aria-label="Report message" onClick={() => { setActiveMessageActions(null); setReportError(''); setReportTarget(message); }}><Flag size={15} /></button>}</div>}</article></Fragment>; })}</div>}
+      {someoneTyping && <p className="direct-typing">Someone is typing…</p>}<form className="direct-composer" onSubmit={send}>
+        {imagePreview && <div className="direct-composer__preview"><img src={imagePreview} alt="Selected image preview" /><span>{uploadingImage ? `Uploading ${uploadProgress}%` : 'Image ready to send'}</span><button type="button" aria-label="Remove attached image" onClick={clearMessageImage}><X size={16} /></button></div>}
+        <div className="direct-composer__row"><input ref={imageInputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void chooseMessageImage(event.currentTarget.files?.[0])} /><Button type="button" variant="quiet" className="direct-composer__attach" aria-label="Attach an image" title="Attach an image" disabled={uploadingImage || sendingMessage} onClick={() => imageInputRef.current?.click()}><ImagePlus size={19} /></Button><label className="visually-hidden" htmlFor="direct-message-content">Write a message</label><textarea id="direct-message-content" rows={1} maxLength={2000} value={draft} onChange={(event) => updateMessageDraft(event.target.value)} placeholder="Write a message…" /><Button type="submit" disabled={(!draft.trim() && !attachedImage) || uploadingImage || sendingMessage} aria-label="Send message"><Send size={17} /></Button></div>
+      </form>
     </>}
     <ConfirmDialog open={Boolean(deleteTarget)} eyebrow="Remove your message" title="Delete this message?" description="The message will be replaced with a deleted notice for both people in this conversation." confirmLabel="Delete message" busy={deleteBusy} error={deleteError} onCancel={() => setDeleteTarget(null)} onConfirm={() => void deletePrivateMessage()} />
     <ConfirmDialog open={Boolean(reportTarget)} eyebrow="Keep conversations safe" title="Report this message?" description={reportTarget ? `Send this message from @${participant?.username} to the moderation team for review.` : ''} confirmLabel="Send report" variant="primary" busy={reportBusy} error={reportError} onCancel={() => setReportTarget(null)} onConfirm={() => void reportPrivateMessage()} />

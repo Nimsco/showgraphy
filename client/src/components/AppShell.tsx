@@ -42,7 +42,15 @@ export function AppShell() {
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
   });
+  const messages = useQuery({
+    queryKey: ['social', 'conversation-unread-count'],
+    queryFn: () => apiRequest<{ unreadPeopleCount: number }>('/social/conversations/unread-count'),
+    enabled: Boolean(user?.id),
+    refetchInterval: 20_000,
+    refetchOnWindowFocus: true,
+  });
   const unreadCount = notifications.data?.unreadCount ?? 0;
+  const unreadPeopleCount = messages.data?.unreadPeopleCount ?? 0;
   const title = pageTitles[location.pathname] || (location.pathname.startsWith('/messages/') ? 'Messages' : location.pathname.startsWith('/community/post/') ? 'Discussion' : location.pathname.includes('/followers') ? 'Followers' : location.pathname.includes('/following') ? 'Following' : location.pathname.includes('/title/') ? 'Title details' : location.pathname.includes('/collections/') ? 'A collection' : 'Showgraphy');
 
   useEffect(() => {
@@ -64,8 +72,8 @@ export function AppShell() {
       <button className="rail-toggle" aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!rail} aria-controls="primary-navigation" onClick={() => setRail((value) => !value)} title={rail ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}><span>‹</span></button>
       <nav className="primary-nav">
         <p className="nav-label">The collection</p>
-        {navigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? label : undefined}>
-          <Icon size={18} strokeWidth={1.7} /><span className="nav-link__label">{label}</span><span className="nav-link__tip">{label}</span>
+        {navigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} onClick={() => setDrawer(false)} className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`} title={rail ? label : undefined} aria-label={to === '/messages' && unreadPeopleCount ? `Messages, ${unreadPeopleCount} people have unread messages` : undefined}>
+          <span className="nav-link__icon-wrap"><Icon size={18} strokeWidth={1.7} />{to === '/messages' && unreadPeopleCount > 0 && <i className="nav-unread-count">{unreadPeopleCount > 99 ? '99+' : unreadPeopleCount}</i>}</span><span className="nav-link__label">{label}</span><span className="nav-link__tip">{label}</span>
         </NavLink>)}
       </nav>
       <div className="sidebar-bottom">
@@ -91,7 +99,7 @@ export function AppShell() {
       </header>
       <main className="app-content"><Outlet /></main>
       <nav className="mobile-nav" aria-label="Mobile navigation">
-        {mobileNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => `mobile-nav__item${isActive ? ' is-active' : ''}`}><span className="mobile-nav__icon"><Icon size={19} /></span><span>{label === 'Global Chat' ? 'Global' : label}</span></NavLink>)}
+        {mobileNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => `mobile-nav__item${isActive ? ' is-active' : ''}`} aria-label={to === '/messages' && unreadPeopleCount ? `Messages, ${unreadPeopleCount} people have unread messages` : undefined}><span className="mobile-nav__icon"><Icon size={19} />{to === '/messages' && unreadPeopleCount > 0 && <i className="nav-unread-count">{unreadPeopleCount > 99 ? '99+' : unreadPeopleCount}</i>}</span><span>{label === 'Global Chat' ? 'Global' : label}</span></NavLink>)}
       </nav>
       <footer className="app-footer"><span>A personal record of what moved you.</span><ProviderCredits /></footer>
     </div>

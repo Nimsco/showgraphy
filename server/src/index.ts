@@ -4,6 +4,7 @@ import { connectDatabase } from './config/database.js';
 import { assertRuntimeConfig, env } from './config/env.js';
 import { createChatSocketServer } from './realtime/chat.socket.js';
 import { scheduleCommunityUploadCleanup } from './services/community-upload-cleanup.service.js';
+import { scheduleSocialUploadCleanup } from './services/social-upload-cleanup.service.js';
 import mongoose from 'mongoose';
 
 async function start() {
@@ -12,6 +13,7 @@ async function start() {
   const server = createServer(app);
   const chat = createChatSocketServer(server);
   scheduleCommunityUploadCleanup();
+  scheduleSocialUploadCleanup();
   server.listen(env.PORT, '0.0.0.0', () => console.info(`Showgraphy API and chat listening on port ${env.PORT}`));
 
   const shutdown = (signal: string) => {
